@@ -11,6 +11,7 @@ export interface CompanyInfo {
   city: string;
   country: string;
   federalState: string;
+  zipCode: string;
 }
 
 export interface RestaurantAddress {
@@ -47,6 +48,7 @@ const defaultFormData: RegistrationData = {
     city: "",
     country: "",
     federalState: "",
+    zipCode: "",
   },
   restaurants: [],
   currentStep: 1,
