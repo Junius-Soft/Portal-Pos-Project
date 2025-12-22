@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 
 const steps = [
   { number: 1, label: "COMPANY INFORMATION" },
-  { number: 2, label: "COMPANY REPRESENTATIVE" },
+  { number: 2, label: "SERVICES" },
   { number: 3, label: "PAYMENT INFORMATION" },
   { number: 4, label: "REGISTRATION DOCUMENTS" },
 ];
@@ -17,26 +17,20 @@ export default function ProgressBar() {
 
   return (
     <div className="w-full mb-8">
-      {/* Labels Row */}
-      <div className="flex items-start pb-0 mb-4">
-        {steps.map((step) => (
-          <div key={`label-${step.number}`} className="flex-1">
-            <div className="text-sm font-bold text-gray-900 uppercase w-full">
-              {step.label}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Circles and Lines Row */}
-      <div className="flex items-center pb-0">
+      <div className="flex items-end relative">
         {steps.map((step, index) => {
           const isActive = currentStep === step.number;
           const isCompleted = currentStep > step.number;
 
           return (
             <React.Fragment key={step.number}>
+              {/* Step Container - Label and Circle together */}
               <div className="flex flex-col items-center flex-1 relative">
+                {/* Label above circle */}
+                <div className="text-xs font-bold text-gray-900 uppercase text-center mb-4 px-1 whitespace-nowrap">
+                  {step.label}
+                </div>
+                
                 {/* Circle or Checkmark */}
                 <div
                   className="rounded-full flex items-center justify-center transition-all relative z-10"
@@ -56,11 +50,14 @@ export default function ProgressBar() {
                 </div>
               </div>
 
-              {/* Aradaki Çizgi */}
+              {/* Connecting Line between circles - from right edge to left edge */}
               {index !== steps.length - 1 && (
                 <div 
                   className="flex-auto border-t-2 transition-colors"
                   style={{
+                    marginLeft: '-20px', // Start from previous circle's right edge
+                    marginRight: '-20px', // End at next circle's left edge
+                    marginBottom: '20px', // Align with circle center
                     borderColor: isCompleted ? '#39A845' : '#F4A023',
                     opacity: isCompleted ? 1 : (isActive ? 1 : 0.3),
                   }}
