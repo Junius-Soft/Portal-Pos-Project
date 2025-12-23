@@ -68,7 +68,11 @@ export default function RegisterPage() {
     let strength = "Weak";
     let percentage = 0;
 
-    if (passedChecks <= 2) {
+    // Parola hem büyük hem küçük harf içermeli (ERPNext gereksinimi)
+    if (!checks.lowercase || !checks.uppercase) {
+      strength = "Weak";
+      percentage = 20;
+    } else if (passedChecks <= 2) {
       strength = "Weak";
       percentage = 33;
     } else if (passedChecks <= 4) {
@@ -80,6 +84,18 @@ export default function RegisterPage() {
     }
 
     setPasswordStrength({ strength, percentage, checks });
+  };
+
+  // Parola geçerliliğini kontrol et (ERPNext gereksinimlerine uygun)
+  const isPasswordValid = (password: string): boolean => {
+    if (!password || password.length < 8) return false;
+    
+    const hasLowercase = /[a-z]/.test(password);
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasDigits = /[0-9]/.test(password);
+    
+    // ERPNext: Hem büyük hem küçük harf zorunlu, rakam önerilir
+    return hasLowercase && hasUppercase && hasDigits;
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,7 +117,7 @@ export default function RegisterPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Sales Person ID (reference) alanı için canlı (on typing) doğrulama
+  // Reference alanı için canlı (on typing) doğrulama
   useEffect(() => {
     const reference = formData.reference?.trim();
 
@@ -133,12 +149,12 @@ export default function RegisterPage() {
           setReferenceMessage(null);
         } else {
           setReferenceStatus("invalid");
-          setReferenceMessage(data.error || data.message || "Sales Person ID not found");
+          setReferenceMessage(data.error || data.message || "No reference found");
         }
       } catch (error) {
-        console.error("Live Sales Person ID validation failed:", error);
+        console.error("Live reference validation failed:", error);
         setReferenceStatus("invalid");
-        setReferenceMessage("Sales Person ID check failed. Please try again.");
+        setReferenceMessage("Reference check failed. Please try again.");
       }
     }, 500);
 
@@ -148,15 +164,23 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Parola geçerliliği kontrolü
+    if (!isPasswordValid(formData.password)) {
+      alert("Parola en az 8 karakter olmalı, hem büyük hem küçük harf ve en az bir rakam içermelidir.");
+      return;
+    }
+
     if (!passwordMatch) {
+      alert("Parolalar eşleşmiyor.");
       return;
     }
 
     if (!agreedToTerms) {
+      alert("Lütfen kullanım şartlarını kabul edin.");
       return;
     }
 
-    // Sales Person ID (custom_sales_person_id) optional:
+    // Reference (Sales Person ID) optional:
     // Eğer doldurulmuşsa ERPNext üzerinde doğrula, boşsa kontrol etme.
     if (formData.reference) {
       try {
@@ -169,17 +193,53 @@ export default function RegisterPage() {
         });
 
         const data = await res.json();
-        console.log("Sales Person ID validate response:", data);
+        console.log("Reference validate response:", data);
 
         if (!res.ok || !data.valid) {
-          alert(data.error || data.message || "Sales Person ID not found");
+          alert(data.error || data.message || "Reference not found");
           return;
         }
       } catch (error) {
-        console.error("Sales Person ID validation failed:", error);
-        alert("Failed to validate Sales Person ID. Please try again.");
+        console.error("Reference validation failed:", error);
+        alert("Failed to validate reference. Please try again.");
         return;
       }
+    }
+
+    // ERP'de User oluştur
+    try {
+      const telephoneFull = `${formData.telephoneCode} ${formData.telephone}`;
+
+      const res = await fetch("/api/erp/register-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName || formData.companyName,
+          telephone: telephoneFull,
+          companyName: formData.companyName,
+          reference: formData.reference,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        // Parola hatası için özel mesaj göster
+        if (data.errorType === "password_validation") {
+          alert(data.error || "Parola gereksinimleri karşılanmıyor. Lütfen daha güçlü bir parola kullanın.");
+        } else {
+          alert(data.error || "Kullanıcı kaydı başarısız oldu. Lütfen tekrar deneyin.");
+        }
+        return;
+      }
+    } catch (error) {
+      console.error("ERP user registration failed:", error);
+      alert("Failed to create user in ERP. Please try again.");
+      return;
     }
 
     // Save initial form data and navigate to company information step
@@ -209,36 +269,36 @@ export default function RegisterPage() {
 
           <CardContent>
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {/* Sales Person ID Field */}
+              {/* Reference Field */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="reference" className="text-sm font-semibold text-gray-700">
-                    Sales Person ID (optional)
+                  <Label htmlFor="reference" className="text-[18px] font-semibold text-gray-700">
+                    Reference
                   </Label>
                 </div>
                 <Input
                   id="reference"
                   name="reference"
                   type="text"
-                  placeholder="Enter Sales Person ID"
+                  placeholder="Enter"
                   value={formData.reference}
                   onChange={handleChange}
                   className="w-full"
                 />
-                {/* Sales Person ID validation message */}
+                {/* Reference validation message */}
                 {formData.reference && referenceStatus === "invalid" && (
                   <p className="text-xs text-red-500">
-                    {referenceMessage || "Sales Person ID not found"}
+                    {referenceMessage || "No reference found"}
                   </p>
                 )}
                 {formData.reference && referenceStatus === "valid" && (
-                  <p className="text-xs text-green-600">Sales Person ID found</p>
+                  <p className="text-xs text-green-600">Reference found</p>
                 )}
               </div>
 
               {/* Company Name */}
               <div className="space-y-2">
-                <Label htmlFor="companyName" className="text-sm font-semibold text-gray-700">
+                <Label htmlFor="companyName" className="text-[18px] font-semibold text-gray-700">
                   Company Name <span className="text-red-500">*</span>
                 </Label>
                 <Input
@@ -255,15 +315,16 @@ export default function RegisterPage() {
 
               {/* Company Representative Section */}
               <div className="space-y-4">
-                <Label className="text-sm font-semibold text-gray-700">
+                <Label className="text-[24px] font-bold text-[#111827]">
                   Company Representative <span className="text-red-500">*</span>
                 </Label>
 
-                {/* First Name and Last Name */}
-                <div className="grid grid-cols-2 gap-4">
+                {/* Customer Name and Telephone number */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Customer Name */}
                   <div className="space-y-2">
-                    <Label htmlFor="firstName" className="text-sm font-semibold text-gray-700">
-                      First Name
+                    <Label htmlFor="firstName" className="text-[18px] font-semibold text-gray-700">
+                      Customer Name
                     </Label>
                     <Input
                       id="firstName"
@@ -275,25 +336,43 @@ export default function RegisterPage() {
                       className="w-full"
                     />
                   </div>
+
+                  {/* Telephone number */}
                   <div className="space-y-2">
-                    <Label htmlFor="lastName" className="text-sm font-semibold text-gray-700">
-                      Last Name
+                    <Label htmlFor="telephone" className="text-[18px] font-semibold text-gray-700">
+                      Telephone number <span className="text-red-500">*</span>
                     </Label>
-                    <Input
-                      id="lastName"
-                      name="lastName"
-                      type="text"
-                      placeholder="Enter Last Name"
-                      value={formData.lastName}
-                      onChange={handleChange}
-                      className="w-full"
-                    />
+                    <div className="flex gap-2">
+                      <div className="flex items-center gap-1 px-3 border border-gray-300 rounded-md bg-white">
+                        <span className="text-xl">{getCountryFlag(formData.telephoneCode)}</span>
+                        <select
+                          className="border-0 outline-none bg-transparent text-sm"
+                          value={formData.telephoneCode}
+                          onChange={(e) => setFormData({ ...formData, telephoneCode: e.target.value })}
+                        >
+                          <option value="+44">+44</option>
+                          <option value="+1">+1</option>
+                          <option value="+90">+90</option>
+                          <option value="+49">+49</option>
+                        </select>
+                      </div>
+                      <Input
+                        id="telephone"
+                        name="telephone"
+                        type="tel"
+                        placeholder="(123) 456 67 87"
+                        value={formData.telephone}
+                        onChange={handleChange}
+                        required
+                        className="flex-1"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Email */}
+                {/* E-mail address */}
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-semibold text-gray-700">
+                  <Label htmlFor="email" className="text-[18px] font-semibold text-gray-700">
                     E-mail address <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -307,44 +386,12 @@ export default function RegisterPage() {
                     className="w-full"
                   />
                 </div>
-
-                {/* Telephone */}
-                <div className="space-y-2">
-                  <Label htmlFor="telephone" className="text-sm font-semibold text-gray-700">
-                    Telephone number <span className="text-red-500">*</span>
-                  </Label>
-                  <div className="flex gap-2">
-                    <div className="flex items-center gap-1 px-3 border border-gray-300 rounded-md bg-white">
-                      <span className="text-xl">{getCountryFlag(formData.telephoneCode)}</span>
-                      <select
-                        className="border-0 outline-none bg-transparent text-sm"
-                        value={formData.telephoneCode}
-                        onChange={(e) => setFormData({ ...formData, telephoneCode: e.target.value })}
-                      >
-                        <option value="+44">+44</option>
-                        <option value="+1">+1</option>
-                        <option value="+90">+90</option>
-                        <option value="+49">+49</option>
-                      </select>
-                    </div>
-                    <Input
-                      id="telephone"
-                      name="telephone"
-                      type="tel"
-                      placeholder="(123) 456 67 87"
-                      value={formData.telephone}
-                      onChange={handleChange}
-                      required
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
               </div>
 
               {/* Password Section */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="password" className="text-sm font-semibold text-gray-700">
+                  <Label htmlFor="password" className="text-[18px] font-semibold text-gray-700">
                     Password
                   </Label>
                   <div className="relative">
@@ -389,24 +436,24 @@ export default function RegisterPage() {
 
                     {/* Password Requirements */}
                     <div className="text-xs text-gray-500 space-y-1 mt-3">
-                      <div className={passwordStrength.checks.lowercase ? "text-green-600" : ""}>
-                        Must contain lowercase and uppercase letters[a-z / A-Z]
+                      <div className={passwordStrength.checks.lowercase && passwordStrength.checks.uppercase ? "text-green-600" : ""}>
+                        ✓ Küçük ve büyük harf içermeli [a-z / A-Z]
                       </div>
                       <div className={passwordStrength.checks.digits ? "text-green-600" : ""}>
-                        Must contain digits[0-9]
-                      </div>
-                      <div className={passwordStrength.checks.special ? "text-green-600" : ""}>
-                        Must contain special characters[@, #, $,%, etc.]
+                        {passwordStrength.checks.digits ? "✓" : "○"} En az bir rakam içermeli [0-9]
                       </div>
                       <div className={passwordStrength.checks.length ? "text-green-600" : ""}>
-                        Password length[ between 8 and 25 characters]
+                        {passwordStrength.checks.length ? "✓" : "○"} 8-25 karakter arası olmalı
+                      </div>
+                      <div className={passwordStrength.checks.special ? "text-green-600" : ""}>
+                        {passwordStrength.checks.special ? "✓" : "○"} Özel karakter önerilir [@, #, $, %, vb.]
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-sm font-semibold text-gray-700">
+                  <Label htmlFor="confirmPassword" className="text-[18px] font-semibold text-gray-700">
                     Confirm Password
                   </Label>
                   <div className="relative">
@@ -438,7 +485,7 @@ export default function RegisterPage() {
 
               {/* Terms of Use */}
               <div className="space-y-3">
-                <Label className="text-sm font-semibold text-gray-700">
+                <Label className="text-[18px] font-semibold text-gray-700">
                   Term of Use <span className="text-red-500">*</span>
                 </Label>
                 <div className="border border-gray-300 rounded-md p-4 max-h-60 overflow-y-auto bg-gray-50">
