@@ -9,6 +9,7 @@ import RegisterButton from "@/components/RegisterButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Trash2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export default function CompanyInformationPage() {
@@ -61,6 +62,13 @@ export default function CompanyInformationPage() {
         country: "",
       },
     ]);
+  };
+
+
+  const removeBusiness = (index: number) => {
+    // En az 1 business kalsın
+    if (businesses.length <= 1) return;
+    setBusinesses(businesses.filter((_, i) => i !== index));
   };
 
   const updateBusiness = (index: number, field: string, value: any) => {
@@ -398,11 +406,298 @@ export default function CompanyInformationPage() {
                     />
                   </div>
                 </div>
-              </div>
+                </div>
 
-              {/* Businesses - Map through all businesses */}
-              {businesses.map((business, index) => (
-                <div key={index} className="space-y-6 border-t pt-6">
+              {/* Business 1 - Inside main card */}
+              {businesses.length > 0 && businesses[0] && (
+                <div className="space-y-6 border-t pt-6">
+                  <h2 className="text-lg font-semibold text-gray-800">Business 1 Information</h2>
+
+                  {/* Business Name */}
+                  <div className="space-y-2">
+                    <Label htmlFor="businessName-0" className="text-sm font-semibold text-gray-700">
+                      Business Name
+                    </Label>
+                    <Input
+                      id="businessName-0"
+                      placeholder="Enter Restaurant Name"
+                      value={businesses[0].businessName}
+                      onChange={(e) => updateBusiness(0, "businessName", e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* Owner/Managing Director and Telephone */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="ownerDirector-0" className="text-sm font-semibold text-gray-700">
+                        Owner/Managing Director <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="ownerDirector-0"
+                        placeholder="Enter Director"
+                        value={businesses[0].ownerDirector}
+                        onChange={(e) => updateBusiness(0, "ownerDirector", e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="ownerTelephone-0" className="text-sm font-semibold text-gray-700">
+                        Telephone number <span className="text-red-500">*</span>
+                      </Label>
+                      <div className="flex gap-2">
+                        <div className="flex items-center gap-1 px-3 border border-gray-300 rounded-md bg-white">
+                          <span className="text-xl">{getCountryFlag(businesses[0].ownerTelephoneCode)}</span>
+                          <select
+                            className="border-0 outline-none bg-transparent text-sm"
+                            value={businesses[0].ownerTelephoneCode}
+                            onChange={(e) => updateBusiness(0, "ownerTelephoneCode", e.target.value)}
+                          >
+                            <option value="+44">+44</option>
+                            <option value="+1">+1</option>
+                            <option value="+90">+90</option>
+                            <option value="+49">+49</option>
+                          </select>
+                        </div>
+                        <Input
+                          id="ownerTelephone-0"
+                          type="tel"
+                          placeholder="123 456 67 87"
+                          value={businesses[0].ownerTelephone}
+                          onChange={(e) => updateBusiness(0, "ownerTelephone", e.target.value)}
+                          required
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Owner E-mail */}
+                  <div className="space-y-2">
+                    <Label htmlFor="ownerEmail-0" className="text-sm font-semibold text-gray-700">
+                      E-mail address <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="ownerEmail-0"
+                      type="email"
+                      placeholder="Enter E-mail address"
+                      value={businesses[0].ownerEmail}
+                      onChange={(e) => updateBusiness(0, "ownerEmail", e.target.value)}
+                      className="w-full"
+                      required
+                    />
+                  </div>
+
+                  {/* Contact Person Checkbox */}
+                  <div className="flex items-start space-x-2">
+                    <Checkbox
+                      id="differentContact-0"
+                      checked={businesses[0].differentContact}
+                      onCheckedChange={(checked) => updateBusiness(0, "differentContact", checked === true)}
+                      className="mt-1"
+                    />
+                    <Label
+                      htmlFor="differentContact-0"
+                      className="text-sm font-normal text-gray-700 cursor-pointer leading-relaxed"
+                    >
+                      Different contact details of the contact person
+                    </Label>
+                  </div>
+
+                  {/* Contact Person Fields - Conditional */}
+                  {businesses[0].differentContact && (
+                    <div className="space-y-6 pl-6 border-l-2 border-gray-200">
+                      {/* Contact Person and Telephone */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="contactPerson-0" className="text-sm font-semibold text-gray-700">
+                            Contact Person <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            id="contactPerson-0"
+                            placeholder="Enter Contact Person"
+                            value={businesses[0].contactPerson}
+                            onChange={(e) => updateBusiness(0, "contactPerson", e.target.value)}
+                            className="w-full"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="contactTelephone-0" className="text-sm font-semibold text-gray-700">
+                            Telephone number <span className="text-red-500">*</span>
+                          </Label>
+                          <div className="flex gap-2">
+                            <div className="flex items-center gap-1 px-3 border border-gray-300 rounded-md bg-white">
+                              <span className="text-xl">{getCountryFlag(businesses[0].contactTelephoneCode)}</span>
+                              <select
+                                className="border-0 outline-none bg-transparent text-sm"
+                                value={businesses[0].contactTelephoneCode}
+                                onChange={(e) => updateBusiness(0, "contactTelephoneCode", e.target.value)}
+                              >
+                                <option value="+44">+44</option>
+                                <option value="+1">+1</option>
+                                <option value="+90">+90</option>
+                                <option value="+49">+49</option>
+                              </select>
+                            </div>
+                            <Input
+                              id="contactTelephone-0"
+                              type="tel"
+                              placeholder="123 456 67 87"
+                              value={businesses[0].contactTelephone}
+                              onChange={(e) => updateBusiness(0, "contactTelephone", e.target.value)}
+                              required
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Contact Person E-mail */}
+                      <div className="space-y-2">
+                        <Label htmlFor="contactEmail-0" className="text-sm font-semibold text-gray-700">
+                          E-mail address <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="contactEmail-0"
+                          type="email"
+                          placeholder="Enter E-mail address"
+                          value={businesses[0].contactEmail}
+                          onChange={(e) => updateBusiness(0, "contactEmail", e.target.value)}
+                          className="w-full"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Business 1 Address Information */}
+                  <div className="space-y-6 border-t pt-6">
+                    <h2 className="text-lg font-semibold text-gray-800">Business 1 Address Information</h2>
+
+                    {/* Street and House number - Full width */}
+                    <div className="space-y-2">
+                      <Label htmlFor="businessStreet-0" className="text-sm font-semibold text-gray-700">
+                        Street and House number
+                      </Label>
+                      <AddressAutocomplete
+                        value={businesses[0].street}
+                        onChange={(address, details) => {
+                          if (details) {
+                            updateBusiness(0, "street", details.street || address);
+                            if (details.city) updateBusiness(0, "city", details.city);
+                            if (details.postalCode) updateBusiness(0, "postalCode", details.postalCode);
+                            if (details.country) updateBusiness(0, "country", details.country);
+                          } else {
+                            updateBusiness(0, "street", address);
+                          }
+                        }}
+                        placeholder="Enter Location"
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* City and Postal code - Side by side */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="businessCity-0" className="text-sm font-semibold text-gray-700">
+                          City
+                        </Label>
+                        <Input
+                          id="businessCity-0"
+                          placeholder="Enter City"
+                          value={businesses[0].city}
+                          onChange={(e) => updateBusiness(0, "city", e.target.value)}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="businessPostalCode-0" className="text-sm font-semibold text-gray-700">
+                          Postal code
+                        </Label>
+                        <Input
+                          id="businessPostalCode-0"
+                          placeholder="enter"
+                          value={businesses[0].postalCode}
+                          onChange={(e) => updateBusiness(0, "postalCode", e.target.value)}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Federal State and Country - Side by side */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="businessState-0" className="text-sm font-semibold text-gray-700">
+                          Federal State <span className="text-red-500">*</span>
+                        </Label>
+                        <select
+                          id="businessState-0"
+                          value={businesses[0].federalState}
+                          onChange={(e) => updateBusiness(0, "federalState", e.target.value)}
+                          disabled={!businesses[0].country}
+                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select State</option>
+                          {businesses[0].country &&
+                            states[businesses[0].country]?.map((state) => (
+                              <option key={state} value={state}>
+                                {state}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="businessCountry-0" className="text-sm font-semibold text-gray-700">
+                          Country <span className="text-red-500">*</span>
+                        </Label>
+                        <select
+                          id="businessCountry-0"
+                          value={businesses[0].country}
+                          onChange={(e) => {
+                            updateBusiness(0, "country", e.target.value);
+                            updateBusiness(0, "federalState", ""); // Reset state when country changes
+                          }}
+                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                          <option value="">Select Country</option>
+                          {countries.map((country) => (
+                            <option key={country} value={country}>
+                              {country}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Business Cards outside main company card - Only for Business 2 and onwards */}
+        {businesses.length > 1 && (
+          <div className="mt-8 space-y-6">
+            {businesses.slice(1).map((business, originalIndex) => {
+              const index = originalIndex + 1; // Adjust index to show correct business number (starts from 1, not 0)
+              return (
+            <Card key={index} className="border-gray-200 shadow-md">
+              <CardContent className="pt-6 relative">
+                {/* Delete Icon */}
+                <button
+                  type="button"
+                  onClick={() => removeBusiness(index)}
+                    className="absolute top-4 right-4 text-red-500 hover:text-red-600"
+                    aria-label="Delete business"
+                  >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+
+                <div className="space-y-6">
                   <h2 className="text-lg font-semibold text-gray-800">Business {index + 1} Information</h2>
 
                   {/* Business Name */}
@@ -666,29 +961,36 @@ export default function CompanyInformationPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+              </CardContent>
+            </Card>
+              );
+            })}
+          </div>
+        )}
 
-              {/* Add Business Button - Only show after last business */}
-              <div className="flex justify-center pt-4">
-                <button
-                  type="button"
-                  onClick={addBusiness}
-                  className="flex flex-col items-center justify-center w-full py-6 border-2 border-dashed border-gray-300 rounded-md hover:border-gray-400 transition-colors"
-                >
-                  <span className="text-2xl mb-2">+</span>
-                  <span className="text-sm font-semibold text-gray-700">Add Business</span>
-                </button>
-              </div>
+        {/* Add Business and Next Buttons - Outside all cards, always at the bottom */}
+        <div className="mt-8 space-y-4">
+          {/* Add Business Button */}
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={addBusiness}
+              className="inline-flex flex-col items-center justify-center px-12 py-4 border-2 border-dashed border-gray-300 rounded-md hover:border-gray-400 transition-colors"
+            >
+              <span className="mb-2 flex items-center justify-center w-8 h-8 rounded-full bg-[#111827]">
+                <Plus className="w-4 h-4 text-white" strokeWidth={3} />
+              </span>
+              <span className="text-sm font-semibold text-gray-700">Add Business</span>
+            </button>
+          </div>
 
-              {/* Next Button */}
-              <div className="flex justify-center pt-6 border-t">
-                <RegisterButton type="button" onClick={handleNext}>
-                  Next
-                </RegisterButton>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+          {/* Next Button */}
+          <div className="flex justify-center pt-4">
+            <RegisterButton type="button" onClick={handleNext}>
+              Next
+            </RegisterButton>
+          </div>
+        </div>
       </div>
     </div>
   );
