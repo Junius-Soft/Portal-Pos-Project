@@ -59,7 +59,23 @@ export async function POST(req: NextRequest) {
       // Custom User Register bulunamazsa devam et, zorunlu değil
     }
 
-    // 3) Lead oluştur
+    // 3) Yardımcı: Country isimlerini ERPNext Country doc name'ine normalize et
+    const normalizeCountry = (country: string | undefined | null): string | undefined => {
+      if (!country) return country ?? undefined;
+
+      const map: Record<string, string> = {
+        "Türkiye": "Turkey",
+        "Turkiye": "Turkey",
+        "Republic of Turkey": "Turkey",
+        "Deutschland": "Germany",
+        "Federal Republic of Germany": "Germany",
+        "United States of America": "United States",
+      };
+
+      return map[country] || country;
+    };
+
+    // 4) Lead oluştur
     // Company name'i Custom User Register'dan al, yoksa formdan al
     const companyName = customUserRegister?.company_name || companyInfo?.companyName || "";
 
@@ -96,7 +112,7 @@ export async function POST(req: NextRequest) {
         leadPayload.state = companyInfo.federalState;
       }
       if (companyInfo.country) {
-        leadPayload.country = companyInfo.country;
+        leadPayload.country = normalizeCountry(companyInfo.country);
       }
       
       // VAT ve Tax ID
@@ -109,10 +125,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reference (Sales Person) varsa lead_owner olarak set et
-    if (customUserRegister?.reference) {
-      leadPayload.lead_owner = customUserRegister.reference;
+    // Businesses array'ini JSON olarak kaydet
+    if (businesses && Array.isArray(businesses) && businesses.length > 0) {
+      leadPayload.custom_businesses = JSON.stringify(businesses);
     }
+
+    // Reference (Sales Person) varsa ileride kullanılmak üzere lead'e ek custom field'a yazılabilir.
+    // Şimdilik ERP'nin LinkValidationError vermemesi için lead_owner alanına yazmıyoruz.
 
     // Lead oluştur
     const leadResult = await erpPost("/api/resource/Lead", leadPayload, token);

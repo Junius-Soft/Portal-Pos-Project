@@ -76,3 +76,20 @@ export async function erpPost(path: string, body: any, token?: string) {
   });
   return handle(res);
 }
+
+export async function erpPut(path: string, body: any, token?: string) {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+  }
+  
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+  });
+  return handle(res);
+}

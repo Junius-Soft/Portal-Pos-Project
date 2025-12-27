@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useRegistration } from "@/contexts/RegistrationContext";
 import ProgressBar from "@/components/ProgressBar";
@@ -62,12 +62,78 @@ export default function PaymentInformationPage() {
   const [ibanError, setIbanError] = useState("");
   const [ibanTouched, setIbanTouched] = useState(false);
 
+  const loadPaymentInfo = useCallback(async () => {
+    // Get user email
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      const sessionEmail = sessionStorage.getItem("userEmail");
+      if (sessionEmail) {
+        userEmail = sessionEmail;
+      } else {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) {
+          try {
+            const parsed = JSON.parse(initialData);
+            userEmail = parsed.email || "";
+          } catch (error) {
+            console.error("Error parsing initial data:", error);
+          }
+        }
+      }
+    }
+
+    if (!userEmail) {
+      return; // Email yoksa Lead'den veri çekemeyiz
+    }
+
+    try {
+      const res = await fetch("/api/erp/get-lead", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: userEmail }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.lead) {
+        const lead = data.lead;
+        
+        // Payment bilgilerini form'a yükle
+        if (lead.custom_account_holder || lead.custom_iban || lead.custom_bic) {
+          setPaymentData({
+            accountHolder: lead.custom_account_holder || "",
+            iban: lead.custom_iban || "",
+            bic: lead.custom_bic || "",
+          });
+          
+          // IBAN validation'ı da yap
+          if (lead.custom_iban) {
+            setIbanTouched(true);
+            if (validateIBAN(lead.custom_iban)) {
+              setIbanError("");
+            } else {
+              setIbanError("Geçerli bir IBAN giriniz");
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error loading payment info:", error);
+      // Hata olsa bile devam et, form boş kalabilir
+    }
+  }, []);
+
   useEffect(() => {
     // Ensure we're on step 3
     if (formData.currentStep !== 3) {
       goToStep(3);
     }
-  }, []);
+
+    // Load payment information from Lead if available
+    loadPaymentInfo();
+  }, [formData.currentStep, goToStep, loadPaymentInfo]);
 
   const handleChange = (field: string, value: string) => {
     setPaymentData((prev) => ({
@@ -93,10 +159,10 @@ export default function PaymentInformationPage() {
 
   const handleBack = () => {
     goToStep(2);
-    router.push("/register/company-representative");
+    router.push("/register/services");
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     // Validate all fields
     if (!paymentData.accountHolder || !paymentData.iban || !paymentData.bic) {
       alert("Please fill in all required fields");
@@ -110,8 +176,68 @@ export default function PaymentInformationPage() {
       return;
     }
 
-    // Save data and navigate to next step
-    // TODO: Save to context or localStorage if needed
+    // Get user email
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      const sessionEmail = sessionStorage.getItem("userEmail");
+      if (sessionEmail) {
+        userEmail = sessionEmail;
+      } else {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) {
+          try {
+            const parsed = JSON.parse(initialData);
+            userEmail = parsed.email || "";
+          } catch (error) {
+            console.error("Error parsing initial data:", error);
+          }
+        }
+      }
+    }
+
+    if (!userEmail) {
+      alert("User email not found. Please login or complete the initial registration first.");
+      return;
+    }
+
+    // Update Lead with payment information
+    try {
+      const requestBody = {
+        email: userEmail,
+        paymentInfo: {
+          accountHolder: paymentData.accountHolder,
+          iban: paymentData.iban,
+          bic: paymentData.bic,
+        },
+      };
+
+      console.log("Sending payment info to API:", requestBody);
+
+      const res = await fetch("/api/erp/update-lead", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await res.json();
+      console.log("API Response:", data);
+
+      if (!res.ok || !data.success) {
+        console.error("API Error:", data);
+        alert(data.error || "Failed to update lead. Please try again.");
+        return;
+      }
+
+      console.log("Payment information updated successfully:", data.lead);
+    } catch (error) {
+      console.error("Payment information update failed:", error);
+      alert("Failed to update payment information. Please try again.");
+      return;
+    }
+
+    // Navigate to next step
     goToStep(4);
     router.push("/register/registration-documents");
   };

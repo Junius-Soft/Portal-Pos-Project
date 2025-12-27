@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useRegistration } from "@/contexts/RegistrationContext";
 import ProgressBar from "@/components/ProgressBar";
@@ -60,7 +60,7 @@ export default function CompanyRepresentativePage() {
         }
       }
     }
-  }, []);
+  }, [formData.currentStep, goToStep]);
 
   const handleChange = (field: string, value: string | boolean) => {
     setRepresentativeData((prev) => ({
