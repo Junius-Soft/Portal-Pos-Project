@@ -100,7 +100,94 @@ export default function CompanyInformationPage() {
       });
       updateFormData({ restaurants: newRestaurants });
     }
+
+    // Load company information from Lead if available
+    loadCompanyInfo();
   }, [restaurantCount]);
+
+  const loadCompanyInfo = async () => {
+    // Get user email
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      const sessionEmail = sessionStorage.getItem("userEmail");
+      if (sessionEmail) {
+        userEmail = sessionEmail;
+      } else {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) {
+          try {
+            const parsed = JSON.parse(initialData);
+            userEmail = parsed.email || "";
+          } catch (error) {
+            console.error("Error parsing initial data:", error);
+          }
+        }
+      }
+    }
+
+    if (!userEmail) {
+      return; // Email yoksa Lead'den veri çekemeyiz
+    }
+
+    try {
+      const res = await fetch("/api/erp/get-lead", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: userEmail }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.lead) {
+        const lead = data.lead;
+        
+        // Company bilgilerini form'a yükle
+        if (lead.company_name || lead.custom_vat_identification_number || lead.custom_tax_id_number || 
+            lead.address_line1 || lead.city || lead.country) {
+          const companyInfo: any = {};
+          
+          if (lead.company_name) companyInfo.companyName = lead.company_name;
+          if (lead.custom_vat_identification_number) companyInfo.vatIdentificationNumber = lead.custom_vat_identification_number;
+          // Not: ERPNext'te field adı custom_custom_tax_id_number (double custom prefix)
+          if (lead.custom_custom_tax_id_number) {
+            companyInfo.taxIdNumber = lead.custom_custom_tax_id_number;
+          } else if (lead.custom_tax_id_number) {
+            // Fallback: Eğer eski field adı varsa onu da kontrol et
+            companyInfo.taxIdNumber = lead.custom_tax_id_number;
+          }
+          // address_line1 ve address_line2'yi birleştir (eğer ikisi de varsa)
+          if (lead.address_line1 || lead.address_line2) {
+            const streetParts = [];
+            if (lead.address_line1) streetParts.push(lead.address_line1);
+            if (lead.address_line2) streetParts.push(lead.address_line2);
+            companyInfo.street = streetParts.join(" ");
+          }
+          if (lead.city) companyInfo.city = lead.city;
+          if (lead.pincode) companyInfo.zipCode = lead.pincode;
+          if (lead.state) companyInfo.federalState = lead.state;
+          if (lead.country) companyInfo.country = lead.country;
+
+          // Form data'yı güncelle
+          updateFormData({
+            companyInfo: {
+              ...formData.companyInfo,
+              ...companyInfo,
+            },
+          });
+        }
+
+        // Businesses array'ini yükle (get-lead endpoint'inde zaten parse edilmiş)
+        if (lead.businesses && Array.isArray(lead.businesses) && lead.businesses.length > 0) {
+          setBusinesses(lead.businesses);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading company info:", error);
+      // Hata olsa bile devam et, form boş kalabilir
+    }
+  };
 
   const handleCompanyInfoChange = (field: keyof typeof formData.companyInfo, value: string) => {
     updateFormData({
@@ -200,9 +287,12 @@ export default function CompanyInformationPage() {
       return;
     }
 
-    // Create Lead in ERPNext
+    // Update Lead in ERPNext (create if not exists)
     try {
-      const res = await fetch("/api/erp/create-lead", {
+      console.log("Sending to API - companyInfo:", JSON.stringify(formData.companyInfo, null, 2));
+      console.log("taxIdNumber value:", formData.companyInfo.taxIdNumber);
+      
+      const res = await fetch("/api/erp/update-lead", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -217,28 +307,21 @@ export default function CompanyInformationPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        alert(data.error || "Failed to create lead in ERP. Please try again.");
+        alert(data.error || "Failed to update lead in ERP. Please try again.");
         return;
       }
 
-      console.log("Lead created successfully:", data.lead);
+      console.log("Lead updated successfully:", data.lead);
     } catch (error) {
-      console.error("Lead creation failed:", error);
-      alert("Failed to create lead in ERP. Please try again.");
+      console.error("Lead update failed:", error);
+      alert("Failed to update lead in ERP. Please try again.");
       return;
     }
 
-    // Check if user is logged in (has sessionStorage email)
-    // If logged in, redirect to dashboard; otherwise continue registration flow
-    if (typeof window !== "undefined" && sessionStorage.getItem("userEmail")) {
-      // User is logged in, redirect to dashboard
-      router.push("/dashboard");
-      return;
-    }
-
-    // Continue with registration flow for new users
+    // Company information kaydedildikten sonra her zaman bir sonraki adıma geç
+    // Dashboard yönlendirmesini, tüm registration adımları tamamlandıktan sonra yapacağız.
     goToStep(2);
-    router.push("/register/company-representative");
+    router.push("/register/services");
   };
 
   // Function to get country flag emoji based on country code
@@ -633,43 +716,30 @@ export default function CompanyInformationPage() {
                         <Label htmlFor="businessState-0" className="text-sm font-semibold text-gray-700">
                           Federal State <span className="text-red-500">*</span>
                         </Label>
-                        <select
-                          id="businessState-0"
+                        <AddressAutocomplete
                           value={businesses[0].federalState}
-                          onChange={(e) => updateBusiness(0, "federalState", e.target.value)}
-                          disabled={!businesses[0].country}
-                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Select State</option>
-                          {businesses[0].country &&
-                            states[businesses[0].country]?.map((state) => (
-                              <option key={state} value={state}>
-                                {state}
-                              </option>
-                            ))}
-                        </select>
+                          onChange={(address) => updateBusiness(0, "federalState", address)}
+                          placeholder="Enter State"
+                          className="w-full"
+                          fieldType="state"
+                          countryRestriction={businesses[0].country}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="businessCountry-0" className="text-sm font-semibold text-gray-700">
                           Country <span className="text-red-500">*</span>
                         </Label>
-                        <select
-                          id="businessCountry-0"
+                        <AddressAutocomplete
                           value={businesses[0].country}
-                          onChange={(e) => {
-                            updateBusiness(0, "country", e.target.value);
+                          onChange={(address) => {
+                            updateBusiness(0, "country", address);
                             updateBusiness(0, "federalState", ""); // Reset state when country changes
                           }}
-                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                        >
-                          <option value="">Select Country</option>
-                          {countries.map((country) => (
-                            <option key={country} value={country}>
-                              {country}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="Enter Country"
+                          className="w-full"
+                          fieldType="country"
+                        />
                       </div>
                     </div>
                   </div>
@@ -920,43 +990,30 @@ export default function CompanyInformationPage() {
                         <Label htmlFor={`businessState-${index}`} className="text-sm font-semibold text-gray-700">
                           Federal State <span className="text-red-500">*</span>
                         </Label>
-                        <select
-                          id={`businessState-${index}`}
+                        <AddressAutocomplete
                           value={business.federalState}
-                          onChange={(e) => updateBusiness(index, "federalState", e.target.value)}
-                          disabled={!business.country}
-                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Select State</option>
-                          {business.country &&
-                            states[business.country]?.map((state) => (
-                              <option key={state} value={state}>
-                                {state}
-                              </option>
-                            ))}
-                        </select>
+                          onChange={(address) => updateBusiness(index, "federalState", address)}
+                          placeholder="Enter State"
+                          className="w-full"
+                          fieldType="state"
+                          countryRestriction={business.country}
+                        />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor={`businessCountry-${index}`} className="text-sm font-semibold text-gray-700">
                           Country <span className="text-red-500">*</span>
                         </Label>
-                        <select
-                          id={`businessCountry-${index}`}
+                        <AddressAutocomplete
                           value={business.country}
-                          onChange={(e) => {
-                            updateBusiness(index, "country", e.target.value);
+                          onChange={(address) => {
+                            updateBusiness(index, "country", address);
                             updateBusiness(index, "federalState", ""); // Reset state when country changes
                           }}
-                          className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                        >
-                          <option value="">Select Country</option>
-                          {countries.map((country) => (
-                            <option key={country} value={country}>
-                              {country}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="Enter Country"
+                          className="w-full"
+                          fieldType="country"
+                        />
                       </div>
                     </div>
                   </div>

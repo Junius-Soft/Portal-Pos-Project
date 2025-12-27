@@ -31,7 +31,73 @@ export default function RegistrationDocumentsPage() {
     if (formData.currentStep !== 4) {
       goToStep(4);
     }
+
+    // Load documents information from Lead if available
+    loadDocumentsInfo();
   }, []);
+
+  const loadDocumentsInfo = async () => {
+    // Get user email
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      const sessionEmail = sessionStorage.getItem("userEmail");
+      if (sessionEmail) {
+        userEmail = sessionEmail;
+      } else {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) {
+          try {
+            const parsed = JSON.parse(initialData);
+            userEmail = parsed.email || "";
+          } catch (error) {
+            console.error("Error parsing initial data:", error);
+          }
+        }
+      }
+    }
+
+    if (!userEmail) {
+      return; // Email yoksa Lead'den veri çekemeyiz
+    }
+
+    try {
+      const res = await fetch("/api/erp/get-lead", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: userEmail }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.lead) {
+        const lead = data.lead;
+        
+        // Type of Company
+        if (lead.custom_type_of_company) {
+          setCompanyType(lead.custom_type_of_company);
+        }
+
+        // File arrays (JSON string'lerden parse et)
+        if (lead.businessRegistrationFiles && Array.isArray(lead.businessRegistrationFiles) && lead.businessRegistrationFiles.length > 0) {
+          // File URL'lerini File objelerine çeviremeyiz, ama en azından state'i güncelleyebiliriz
+          // Şimdilik sadece type of company'yi yükleyelim, file'lar için ayrı bir çözüm gerekebilir
+        }
+        if (lead.idFiles && Array.isArray(lead.idFiles) && lead.idFiles.length > 0) {
+          // Aynı şekilde
+        }
+        if (lead.shareholdersFiles && Array.isArray(lead.shareholdersFiles) && lead.shareholdersFiles.length > 0) {
+          // Aynı şekilde
+        }
+        // Not: File'ları geri yüklemek için URL'lerden File objesi oluşturmak gerekir, bu daha karmaşık
+        // Şimdilik sadece type of company'yi yükleyelim
+      }
+    } catch (error) {
+      console.error("Error loading documents info:", error);
+      // Hata olsa bile devam et
+    }
+  };
 
   const handleFileSelect = (
     files: FileList | null,
