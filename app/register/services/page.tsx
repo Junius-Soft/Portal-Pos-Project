@@ -40,6 +40,8 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true);
   const hasLoadedServices = useRef(false);
   const hasLoadedSelectedServices = useRef(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = useRef(true);
   const loadSelectedServices = useCallback(async () => {
     // Get user email
     let userEmail = "";
@@ -157,9 +159,82 @@ export default function ServicesPage() {
   useEffect(() => {
     if (services.length > 0 && !hasLoadedSelectedServices.current) {
       hasLoadedSelectedServices.current = true;
-      loadSelectedServices();
+      loadSelectedServices().then(() => {
+        // İlk yükleme tamamlandıktan sonra isInitialLoadRef'i false yap
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+        }, 500);
+      });
     }
   }, [services.length, loadSelectedServices]);
+
+  // Selected services değiştiğinde otomatik kaydet (debounce ile)
+  useEffect(() => {
+    // İlk yükleme sırasında kaydetme
+    if (isInitialLoadRef.current) {
+      return;
+    }
+
+    // Önceki timeout'u temizle
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // 1 saniye bekle, sonra kaydet
+    saveTimeoutRef.current = setTimeout(async () => {
+      // Get user email
+      let userEmail = "";
+      if (typeof window !== "undefined") {
+        const sessionEmail = sessionStorage.getItem("userEmail");
+        if (sessionEmail) {
+          userEmail = sessionEmail;
+        } else {
+          const initialData = localStorage.getItem("initialRegistrationData");
+          if (initialData) {
+            try {
+              const parsed = JSON.parse(initialData);
+              userEmail = parsed.email || "";
+            } catch (error) {
+              console.error("Error parsing initial data:", error);
+            }
+          }
+        }
+      }
+
+      if (!userEmail) {
+        return; // Email yoksa kaydedemeyiz
+      }
+
+      // Update Lead with selected services
+      try {
+        const res = await fetch("/api/erp/update-lead", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: userEmail,
+            services: selectedServices,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          console.error("Auto-save services failed:", data.error);
+        }
+      } catch (error) {
+        console.error("Auto-save services error:", error);
+      }
+    }, 1000); // 1 saniye debounce
+
+    // Cleanup function
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [selectedServices]);
 
   const handleServiceToggle = (serviceId: string) => {
     setSelectedServices((prev) => {
@@ -184,7 +259,48 @@ export default function ServicesPage() {
     }));
   };
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    // Back butonuna basıldığında önce değişiklikleri kaydet
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      const sessionEmail = sessionStorage.getItem("userEmail");
+      if (sessionEmail) {
+        userEmail = sessionEmail;
+      } else {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) {
+          try {
+            const parsed = JSON.parse(initialData);
+            userEmail = parsed.email || "";
+          } catch (error) {
+            console.error("Error parsing initial data:", error);
+          }
+        }
+      }
+    }
+
+    if (userEmail) {
+      try {
+        // Debounce timeout'unu temizle ve hemen kaydet
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+        
+        await fetch("/api/erp/update-lead", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: userEmail,
+            services: selectedServices,
+          }),
+        });
+      } catch (error) {
+        console.error("Error saving services on back:", error);
+      }
+    }
+
     goToStep(1);
     router.push("/register/company-information");
   };
