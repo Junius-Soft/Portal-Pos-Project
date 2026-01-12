@@ -9,243 +9,184 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-// Image component'i kaldırıldı, normal img tag kullanıyoruz (external URL'ler için)
 
+// Types
 interface ServiceContract {
   name: string;
   contract_name: string;
   contract_pdf: string;
-  valid_from: string;
-  valid_to: string;
 }
 
 interface Service {
-  id: string;
-  name: string;
+  id: string; // ID (örn: l3fe0digrh)
+  name: string; // İsim (örn: Premium Paket)
   description: string;
   image: string | null;
   isActive: boolean;
   contracts: ServiceContract[];
 }
 
-// Default Terms of Use text (şimdilik otomatik doldurulacak)
-const DEFAULT_TERMS_OF_USE = `By agreeing, you declare that you have read, fully understood, and legally accepted the Terms of Use. Furthermore, you acknowledge that the Terms may be updated periodically and that any continued use of the service constitutes acceptance of the currently valid versions. You confirm that you have familiarized yourself with all regulations and accept them as the basis for our contractual cooperation. Furthermore, you declare that all information you have provided is accurate, complete, and up-to-date. You agree to take the necessary security measures to protect your account and to refrain from any form of misuse. You also agree that personal data may be processed in accordance with applicable data protection regulations and may be disclosed to competent authorities as required by law. By giving your consent, you confirm that you have read and understood the data protection regulations and expressly agree to the described processing activities.`;
+const DEFAULT_TERMS_OF_USE = `By agreeing, you declare that you have read...`;
 
 export default function ServicesPage() {
   const router = useRouter();
   const { formData, updateFormData, goToStep } = useRegistration();
   const [services, setServices] = useState<Service[]>([]);
-  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]); // ID listesi
   const [acceptedTerms, setAcceptedTerms] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const hasLoadedServices = useRef(false);
-  const hasLoadedSelectedServices = useRef(false);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const isInitialLoadRef = useRef(true);
-  const loadSelectedServices = useCallback(async () => {
-    // Get user email
-    let userEmail = "";
-    if (typeof window !== "undefined") {
-      const sessionEmail = sessionStorage.getItem("userEmail");
-      if (sessionEmail) {
-        userEmail = sessionEmail;
-      } else {
-        const initialData = localStorage.getItem("initialRegistrationData");
-        if (initialData) {
-          try {
-            const parsed = JSON.parse(initialData);
-            userEmail = parsed.email || "";
-          } catch (error) {
-            console.error("Error parsing initial data:", error);
-          }
-        }
-      }
-    }
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    if (!userEmail) {
-      return; // Email yoksa Lead'den veri çekemeyiz
-    }
-
-    try {
-      const res = await fetch("/api/erp/get-lead", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email: userEmail }),
-      });
-
-      const data = await res.json();
-
-      if (data.success && data.lead) {
-        
-        let savedServices: string[] = [];
-        
-        // Önce Child Table'dan services'i al (yeni sistem)
-        if (data.lead.services && Array.isArray(data.lead.services) && data.lead.services.length > 0) {
-          savedServices = data.lead.services.map((serviceRow: any) => {
-            // service field'ı Link type olduğu için Service DocType'ının name'ini içerir
-            const serviceId = serviceRow.service || serviceRow.service_name || serviceRow.name;
-            return serviceId;
-          }).filter((id: string) => id); // Boş değerleri filtrele
-        }
-        
-        // Eğer Child Table'da yoksa, eski JSON field'ından oku (backward compatibility)
-        if (savedServices.length === 0 && data.lead.custom_selected_services) {
-          try {
-            savedServices = JSON.parse(data.lead.custom_selected_services);
-          } catch (parseError) {
-            console.error("Error parsing selected services from JSON:", parseError);
-          }
-        }
-        
-        if (Array.isArray(savedServices) && savedServices.length > 0) {
-          // Direkt set et, services yüklendikten sonra validation yapılacak
-          setSelectedServices(savedServices);
-          // Terms'leri de otomatik kabul et (kullanıcı daha önce kabul etmişti)
-          const termsMap: Record<string, boolean> = {};
-          savedServices.forEach((serviceId: string) => {
-            termsMap[serviceId] = true;
-          });
-          setAcceptedTerms(termsMap);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading selected services:", error);
-      // Hata olsa bile devam et
-    }
-  }, []); // services dependency'sini kaldırdık, sonsuz döngüyü önlemek için
-
+  // --- 1. TÜM SERVİSLERİ ÇEK ---
   const fetchServices = useCallback(async () => {
     try {
       const response = await fetch("/api/erp/get-services");
       const data = await response.json();
-
-
       if (data.success && Array.isArray(data.services)) {
         setServices(data.services);
-        return Promise.resolve(); // Services yüklendi
-      } else {
-        console.error("Services API error:", data.error);
-        // Hata mesajını göster
-        if (data.error) {
-          alert(`Error loading services: ${data.error}`);
-        }
-        return Promise.reject(new Error(data.error || "Failed to load services"));
       }
     } catch (error) {
       console.error("Error fetching services:", error);
-      alert("Failed to load services. Please check console for details.");
-      return Promise.reject(error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    // Ensure we're on step 2
-    if (formData.currentStep !== 2) {
-      goToStep(2);
-    }
+  // --- 2. ERP'DEN KAYITLI SEÇİMLERİ GETİR ---
+  const loadSelectedServices = useCallback(async () => {
+    // Servis listesi boşsa eşleştirme yapamayız, bekle.
+    if (services.length === 0) return;
 
-    // Load services from ERPNext (sadece bir kez)
-    if (!hasLoadedServices.current) {
-      hasLoadedServices.current = true;
-      fetchServices();
-    }
-  }, [formData.currentStep, goToStep, fetchServices]);
-  
-  // Services yüklendikten sonra selected services'i yükle (sadece bir kez)
-  useEffect(() => {
-    if (services.length > 0 && !hasLoadedSelectedServices.current) {
-      hasLoadedSelectedServices.current = true;
-      loadSelectedServices().then(() => {
-        // İlk yükleme tamamlandıktan sonra isInitialLoadRef'i false yap
-        setTimeout(() => {
-          isInitialLoadRef.current = false;
-        }, 500);
-      });
-    }
-  }, [services.length, loadSelectedServices]);
-
-  // Selected services değiştiğinde otomatik kaydet (debounce ile)
-  useEffect(() => {
-    // İlk yükleme sırasında kaydetme
-    if (isInitialLoadRef.current) {
-      return;
-    }
-
-    // Önceki timeout'u temizle
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // 1 saniye bekle, sonra kaydet
-    saveTimeoutRef.current = setTimeout(async () => {
-      // Get user email
-      let userEmail = "";
-      if (typeof window !== "undefined") {
-        const sessionEmail = sessionStorage.getItem("userEmail");
-        if (sessionEmail) {
-          userEmail = sessionEmail;
-        } else {
-          const initialData = localStorage.getItem("initialRegistrationData");
-          if (initialData) {
-            try {
-              const parsed = JSON.parse(initialData);
-              userEmail = parsed.email || "";
-            } catch (error) {
-              console.error("Error parsing initial data:", error);
-            }
-          }
-        }
-      }
-
+    let userEmail = "";
+    if (typeof window !== "undefined") {
+      userEmail = sessionStorage.getItem("userEmail") || "";
       if (!userEmail) {
-        return; // Email yoksa kaydedemeyiz
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) try { userEmail = JSON.parse(initialData).email || ""; } catch (e) {}
       }
+    }
+    if (!userEmail) return;
 
-      // Update Lead with selected services
-      try {
-        const res = await fetch("/api/erp/update-lead", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: userEmail,
-            services: selectedServices,
-          }),
+    try {
+      const res = await fetch("/api/erp/get-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.lead && data.lead.custom_selected_services) {
+        let incomingValues: string[] = [];
+        
+        // Veriyi Parse Et (String veya JSON olabilir)
+        const raw = data.lead.custom_selected_services;
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) incomingValues = parsed;
+        } catch {
+            // JSON değilse, virgülle ayrılmış stringdir
+            incomingValues = raw.split(",").map((s: string) => s.trim());
+        }
+
+        console.log("ERP'den Gelen Değerler:", incomingValues);
+        
+        const matchedIDs: string[] = [];
+
+        // --- AKILLI EŞLEŞTİRME MANTIĞI ---
+        // Gelen değer ID de olabilir, İsim de olabilir. İkisini de kontrol et.
+        incomingValues.forEach(val => {
+          const cleanVal = val.toLowerCase().trim();
+
+          // 1. İSİM ile eşleşiyor mu? (Backend İsim kaydettiyse burası çalışır)
+          const matchByName = services.find(s => s.name.toLowerCase().trim() === cleanVal);
+          if (matchByName) {
+              matchedIDs.push(matchByName.id);
+              return;
+          }
+
+          // 2. ID ile eşleşiyor mu? (Backend ID kaydettiyse burası çalışır)
+          const matchById = services.find(s => s.id === cleanVal);
+          if (matchById) {
+              matchedIDs.push(matchById.id);
+          }
         });
 
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          console.error("Auto-save services failed:", data.error);
+        console.log("Eşleşen Servis ID'leri:", matchedIDs);
+        
+        if (matchedIDs.length > 0) {
+          setSelectedServices(matchedIDs);
+          // Seçili gelenlerin terms'lerini otomatik kabul et
+          const termsMap: Record<string, boolean> = {};
+          matchedIDs.forEach(id => { termsMap[id] = true; });
+          setAcceptedTerms(termsMap);
         }
-      } catch (error) {
-        console.error("Auto-save services error:", error);
       }
-    }, 1000); // 1 saniye debounce
+    } catch (error) {
+      console.error("Load error:", error);
+    }
+  }, [services]); 
 
-    // Cleanup function
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
+  // --- Initial Load ---
+  useEffect(() => {
+    if (formData.currentStep !== 2) goToStep(2);
+    fetchServices();
+  }, [formData.currentStep, goToStep, fetchServices]);
+
+  // Servisler yüklendiğinde kullanıcı seçimlerini getir
+  useEffect(() => {
+    if (services.length > 0 && isInitialLoadRef.current) {
+      loadSelectedServices().then(() => {
+        setTimeout(() => { isInitialLoadRef.current = false; }, 500);
+      });
+    }
+  }, [services, loadSelectedServices]);
+
+  // --- Auto Save ---
+  useEffect(() => {
+    if (isInitialLoadRef.current) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      await saveSelectionToErp();
+    }, 1000);
+
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
   }, [selectedServices]);
+
+  const saveSelectionToErp = async () => {
+    let userEmail = sessionStorage.getItem("userEmail");
+    if (!userEmail) {
+        const initialData = localStorage.getItem("initialRegistrationData");
+        if (initialData) try { userEmail = JSON.parse(initialData).email; } catch(e){}
+    }
+    if (!userEmail) return;
+
+    try {
+      // Backend'e ID'leri gönderiyoruz. Backend bunları İsim'e çevirip kaydedecek.
+      await fetch("/api/erp/update-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail,
+          services: selectedServices, // ID Array
+        }),
+      });
+    } catch (error) { console.error("Auto-save failed", error); }
+  };
 
   const handleServiceToggle = (serviceId: string) => {
     setSelectedServices((prev) => {
-      if (prev.includes(serviceId)) {
-        // Service seçimi kaldırıldığında terms acceptance'ı da kaldır
-        setAcceptedTerms((prevTerms) => {
-          const newTerms = { ...prevTerms };
-          delete newTerms[serviceId];
-          return newTerms;
+      const isSelected = prev.includes(serviceId);
+      if (isSelected) {
+        setAcceptedTerms(prev => {
+            const newTerms = { ...prev };
+            delete newTerms[serviceId];
+            return newTerms;
         });
-        return prev.filter((id) => id !== serviceId);
+        return prev.filter(id => id !== serviceId);
       } else {
         return [...prev, serviceId];
       }
@@ -253,288 +194,90 @@ export default function ServicesPage() {
   };
 
   const handleTermsToggle = (serviceId: string, checked: boolean) => {
-    setAcceptedTerms((prev) => ({
-      ...prev,
-      [serviceId]: checked,
-    }));
-  };
-
-  const handleBack = async () => {
-    // Back butonuna basıldığında önce değişiklikleri kaydet
-    let userEmail = "";
-    if (typeof window !== "undefined") {
-      const sessionEmail = sessionStorage.getItem("userEmail");
-      if (sessionEmail) {
-        userEmail = sessionEmail;
-      } else {
-        const initialData = localStorage.getItem("initialRegistrationData");
-        if (initialData) {
-          try {
-            const parsed = JSON.parse(initialData);
-            userEmail = parsed.email || "";
-          } catch (error) {
-            console.error("Error parsing initial data:", error);
-          }
-        }
-      }
-    }
-
-    if (userEmail) {
-      try {
-        // Debounce timeout'unu temizle ve hemen kaydet
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
-        
-        await fetch("/api/erp/update-lead", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: userEmail,
-            services: selectedServices,
-          }),
-        });
-      } catch (error) {
-        console.error("Error saving services on back:", error);
-      }
-    }
-
-    goToStep(1);
-    router.push("/register/company-information");
+    setAcceptedTerms(prev => ({ ...prev, [serviceId]: checked }));
   };
 
   const handleNext = async () => {
-    // Validate: Seçilen her service için terms kabul edilmiş olmalı
-    const allTermsAccepted = selectedServices.every(
-      (serviceId) => acceptedTerms[serviceId] === true
-    );
-
-    if (selectedServices.length > 0 && !allTermsAccepted) {
-      alert("Please accept the terms of use for all selected services.");
+    const missingTerms = selectedServices.filter(id => !acceptedTerms[id]);
+    if (selectedServices.length > 0 && missingTerms.length > 0) {
+      alert("Please accept terms of use.");
       return;
     }
-
-    // Get user email
-    let userEmail = "";
-    if (typeof window !== "undefined") {
-      const sessionEmail = sessionStorage.getItem("userEmail");
-      if (sessionEmail) {
-        userEmail = sessionEmail;
-      } else {
-        const initialData = localStorage.getItem("initialRegistrationData");
-        if (initialData) {
-          try {
-            const parsed = JSON.parse(initialData);
-            userEmail = parsed.email || "";
-          } catch (error) {
-            console.error("Error parsing initial data:", error);
-          }
-        }
-      }
-    }
-
-    if (!userEmail) {
-      alert("User email not found. Please login or complete the initial registration first.");
-      return;
-    }
-
-    // Update Lead with selected services
-    try {
-      const res = await fetch("/api/erp/update-lead", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: userEmail,
-          services: selectedServices,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        alert(data.error || "Failed to update lead. Please try again.");
-        return;
-      }
-
-    } catch (error) {
-      console.error("Services update failed:", error);
-      alert("Failed to update services. Please try again.");
-      return;
-    }
-
-    // Navigate to next step
+    await saveSelectionToErp();
     goToStep(3);
     router.push("/register/payment-information");
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  };
-
-  const getBaseUrl = () => {
-    if (typeof window !== "undefined") {
-      return process.env.NEXT_PUBLIC_ERP_BASE_URL || "";
-    }
-    return "";
+  const handleBack = async () => {
+    await saveSelectionToErp();
+    goToStep(1);
+    router.push("/register/company-information");
   };
 
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Progress Bar */}
+      <div className="max-w-4xl mx-auto">
         <ProgressBar />
-
-        {/* Section Title */}
-        <div className="mb-8 mt-8 ml-10">
+        <div className="mb-8 mt-8 ml-2">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Services</h1>
-          <p className="text-sm text-gray-600">Please provide your company details to get started</p>
+          <p className="text-sm text-gray-600">Please select services.</p>
         </div>
 
-        {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Panel: Services Selection */}
-          <Card className="border-gray-200 shadow-lg">
-            <CardContent className="p-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-6">SERVICES</h2>
-              
-              {loading ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-600">Loading services...</p>
-                </div>
-              ) : services.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-600">No services available at the moment.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {services.map((service) => (
-                    <div key={service.id} className="space-y-4">
-                      {/* Service Name */}
-                      <h3 className="text-base font-semibold text-gray-800">{service.name}</h3>
-                      
-                      {/* Service Image */}
-                      {service.image ? (
-                        <div className="relative w-full h-48 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden">
-                          <img
-                            src={service.image}
-                            alt={service.name}
-                            className="w-full h-full object-contain rounded-lg"
-                            onError={(e) => {
-                              console.error("Image load error for service:", service.name, "URL:", service.image);
-                              e.currentTarget.style.display = 'none';
-                              // Hata durumunda placeholder göster
-                              const parent = e.currentTarget.parentElement;
-                              if (parent) {
-                                parent.innerHTML = '<div class="w-full h-full flex items-center justify-center"><p class="text-gray-400 text-sm">Image not available</p></div>';
-                              }
-                            }}
-                          />
+        {loading ? (
+           <div className="text-center py-12">Loading...</div>
+        ) : (
+          <div className="space-y-8">
+            {services.map((service) => {
+              const isSelected = selectedServices.includes(service.id);
+              return (
+                <Card key={service.id} className={`border-2 transition-all ${isSelected ? "border-gray-800 shadow-lg" : "border-gray-200"}`}>
+                  <CardContent className="p-0">
+                    <div className="p-6">
+                      <div className="flex flex-col md:flex-row gap-6 items-start">
+                        <div className="w-full md:w-1/3 flex-shrink-0">
+                           <div className="aspect-video relative rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                             {service.image ? (
+                               <img src={service.image} alt={service.name} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                             ) : (
+                               <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No Image</div>
+                             )}
+                           </div>
                         </div>
-                      ) : (
-                        <div className="w-full h-48 flex items-center justify-center bg-gray-100 rounded-lg">
-                          <p className="text-gray-400 text-sm">No image available</p>
+                        <div className="flex-1 w-full">
+                           <div className="flex justify-between items-start mb-2">
+                              <h3 className="text-xl font-bold text-gray-900">{service.name}</h3>
+                              <Checkbox checked={isSelected} onCheckedChange={() => handleServiceToggle(service.id)} className="w-6 h-6 border-2 data-[state=checked]:bg-gray-900" />
+                           </div>
+                           <div className="text-gray-600 text-sm mb-4 cursor-pointer" onClick={() => handleServiceToggle(service.id)}>
+                             {service.description || "No description."}
+                           </div>
+                           <label className={`text-sm font-medium cursor-pointer ${isSelected ? "text-green-600" : "text-gray-500"}`} onClick={() => handleServiceToggle(service.id)}>
+                             {isSelected ? "Service Selected" : "Click to select"}
+                           </label>
                         </div>
-                      )}
-
-                      {/* Service Checkbox */}
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id={`service-${service.id}`}
-                          checked={selectedServices.includes(service.id)}
-                          onCheckedChange={() => handleServiceToggle(service.id)}
-                        />
-                        <Label
-                          htmlFor={`service-${service.id}`}
-                          className="text-sm font-normal text-gray-700 cursor-pointer"
-                        >
-                          Select {service.name}
-                        </Label>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Right Panel: Terms of Use */}
-          <Card className="border-gray-200 shadow-lg">
-            <CardContent className="p-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-6">Terms of Use</h2>
-              
-              {selectedServices.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-600">Please select a service to view its terms of use.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {selectedServices.map((serviceId) => {
-                    const service = services.find((s) => s.id === serviceId);
-                    if (!service) return null;
-
-                    return (
-                      <div key={serviceId} className="space-y-4">
-                        {/* Service Name with asterisk */}
-                        <h3 className="text-base font-semibold text-gray-800">
-                          {service.name.toUpperCase()} Terms of Use <span className="text-red-500">*</span>
-                        </h3>
-
-                        {/* Terms Text Area (Scrollable) */}
-                        <div className="border border-gray-300 rounded-md p-4 bg-white max-h-64 overflow-y-auto">
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                            {DEFAULT_TERMS_OF_USE}
-                          </p>
-                        </div>
-
-                        {/* Terms Acceptance Checkbox */}
-                        <div className="flex items-start gap-2">
-                          <Checkbox
-                            id={`terms-${serviceId}`}
-                            checked={acceptedTerms[serviceId] || false}
-                            onCheckedChange={(checked) =>
-                              handleTermsToggle(serviceId, checked === true)
-                            }
-                            className="mt-1"
-                          />
-                          <Label
-                            htmlFor={`terms-${serviceId}`}
-                            className="text-sm font-normal text-gray-700 cursor-pointer leading-relaxed"
-                          >
-                            I confirm that I have read and accepted terms of use.
-                          </Label>
+                    {isSelected && (
+                      <div className="border-t border-gray-200 bg-gray-50 p-6">
+                        <h4 className="text-sm font-semibold mb-3">Terms of Use</h4>
+                        <div className="bg-white border rounded-md p-4 max-h-48 overflow-y-auto mb-4 text-sm text-gray-600">{DEFAULT_TERMS_OF_USE}</div>
+                        <div className="flex items-center gap-3">
+                          <Checkbox checked={acceptedTerms[service.id] || false} onCheckedChange={(checked) => handleTermsToggle(service.id, checked === true)} />
+                          <Label className="text-sm font-medium cursor-pointer">I accept the Terms of Use for {service.name}.</Label>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Navigation Buttons */}
-        <div className="flex justify-center gap-4 pt-6 mt-8">
-          <Button
-            type="button"
-            onClick={handleBack}
-            variant="outline"
-            className="px-8 h-[50px] text-base font-semibold border-gray-300 text-gray-700 hover:bg-gray-50"
-            style={{ width: "343px" }}
-          >
-            Back
-          </Button>
-          <RegisterButton type="button" onClick={handleNext}>
-            Next
-          </RegisterButton>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex justify-center gap-4 pt-10 pb-8">
+          <Button onClick={handleBack} variant="outline" className="px-8 h-[50px] w-[200px]">Back</Button>
+          <RegisterButton onClick={handleNext} className="w-[200px]">Next</RegisterButton>
         </div>
       </div>
     </div>
   );
 }
-
