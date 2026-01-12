@@ -10,314 +10,185 @@ export async function POST(req: NextRequest) {
     const { email } = await req.json();
 
     if (!email) {
-      return NextResponse.json(
-        { error: "Email is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
     const token = process.env.ERP_API_TOKEN;
+    if (!token) return NextResponse.json({ error: "Token missing" }, { status: 500 });
 
-    if (!token) {
-      return NextResponse.json(
-        { error: "ERP_API_TOKEN environment variable is not set" },
-        { status: 500 }
-      );
-    }
-
-    // Lead'i email ile bul
+    // 1. Lead'i email ile bul
     const leadFilters = encodeURIComponent(JSON.stringify([["email_id", "=", email]]));
-    const leadFields = encodeURIComponent(JSON.stringify(["*"]));
-    
-    const leadResult = await erpGet(
-      `/api/resource/Lead?filters=${leadFilters}&fields=${leadFields}`,
-      token
-    );
-
+    const leadResult = await erpGet(`/api/resource/Lead?filters=${leadFilters}&fields=["*"]`, token);
     const leads = leadResult?.data || (Array.isArray(leadResult) ? leadResult : []);
 
     if (Array.isArray(leads) && leads.length > 0) {
       const lead = leads[0];
       const leadName = lead.name;
       
-      // Lead'i direkt name ile çek (Child Table'lar dahil)
-      let fullLead;
+      // 2. Lead Detaylarını (Child Table'lar dahil) Çek
       try {
-        fullLead = await erpGet(`/api/resource/Lead/${encodeURIComponent(leadName)}`, token);
-        fullLead = fullLead?.data || fullLead;
+        const fullLead = await erpGet(`/api/resource/Lead/${encodeURIComponent(leadName)}`, token);
+        const fullLeadData = fullLead?.data || fullLead;
         
-        // Eğer fullLead'de services varsa, onu kullan
-        if (fullLead && fullLead.services) {
-          lead.services = fullLead.services;
+        // Servisleri Child Table'dan al (services, custom_services veya lead_services olabilir)
+        if (fullLeadData) {
+            lead.services = fullLeadData.services || fullLeadData.custom_services || fullLeadData.lead_services || [];
         }
-      } catch (fullLeadError: any) {
-        console.warn("Error fetching full Lead:", fullLeadError);
-        // Hata olsa bile devam et, mevcut lead'i kullan
+      } catch (e) {
+        console.warn("Full lead fetch error:", e);
       }
+
+      // --- ADRES ÇEKME (DÜZELTİLDİ) ---
+      // link_doctype yerine address_title (Company Name) kullanıyoruz.
       
-      
-      // Address kaydını oku (Billing Address - Company Information için)
       let billingAddress = null;
       try {
-        // Address API çağrısı için filter'ları düzgün encode et
-        const addressFilters = [
-          ["link_doctype", "=", "Lead"],
-          ["link_name", "=", leadName],
+        const addressTitle = lead.company_name || lead.lead_name || "Billing";
+        
+        const addressFilters = encodeURIComponent(JSON.stringify([
+          ["address_title", "=", addressTitle],
           ["address_type", "=", "Billing"]
-        ];
-        const addressFields = ["*"];
+        ]));
         
-        // URL parametrelerini manuel olarak oluştur (417 hatasını önlemek için)
-        const filtersParam = encodeURIComponent(JSON.stringify(addressFilters));
-        const fieldsParam = encodeURIComponent(JSON.stringify(addressFields));
-        const addressUrl = `/api/resource/Address?filters=${filtersParam}&fields=${fieldsParam}`;
+        const addressResult = await erpGet(`/api/resource/Address?filters=${addressFilters}&fields=["*"]&limit_page_length=1`, token);
+        const addresses = addressResult?.data || addressResult || [];
         
-        const addressResult = await erpGet(addressUrl, token);
-
-        const addresses = addressResult?.data || (Array.isArray(addressResult) ? addressResult : []);
-        
-        // Eğer Address kaydı varsa, Lead'in address field'larını Address'ten güncelle
-        if (Array.isArray(addresses) && addresses.length > 0) {
+        if (addresses.length > 0) {
           billingAddress = addresses[0];
-          
-          // Address'ten gelen bilgileri Lead'e override et (Address öncelikli)
-          if (billingAddress.address_line1) {
-            lead.address_line1 = billingAddress.address_line1;
-            lead.custom_address_line1 = billingAddress.address_line1; // Custom field'a da kaydet
-          }
-          if (billingAddress.address_line2) {
-            lead.address_line2 = billingAddress.address_line2;
-          }
-          if (billingAddress.city) {
-            lead.city = billingAddress.city;
-          }
-          if (billingAddress.county) {
-            // County bilgisi varsa onu da sakla (ERPNext'te city bazen county'de olabilir)
-            if (!lead.city) {
-              lead.city = billingAddress.county;
-            }
-          }
-          if (billingAddress.pincode) {
-            lead.pincode = billingAddress.pincode;
-            lead.custom_pincode = billingAddress.pincode; // Custom field'a da kaydet
-          }
-          if (billingAddress.state) {
-            lead.state = billingAddress.state;
-            lead.custom_state = billingAddress.state; // Custom field'a da kaydet
-          }
-          if (billingAddress.country) {
-            lead.country = billingAddress.country;
-          }
-        } else {
-          // Address yoksa, custom field'lardan oku (fallback)
-          if (lead.custom_address_line1 && !lead.address_line1) {
-            lead.address_line1 = lead.custom_address_line1;
-          }
-          if (lead.custom_pincode && !lead.pincode) {
-            lead.pincode = lead.custom_pincode;
-          }
-          if (lead.custom_state && !lead.state) {
-            lead.state = lead.custom_state;
-          }
+          // Adres bilgilerini Lead'e işle
+          lead.address_line1 = billingAddress.address_line1 || lead.address_line1;
+          lead.custom_address_line1 = billingAddress.address_line1 || lead.custom_address_line1;
+          lead.city = billingAddress.city || lead.city;
+          lead.pincode = billingAddress.pincode || lead.pincode;
+          lead.custom_pincode = billingAddress.pincode || lead.custom_pincode;
+          lead.state = billingAddress.state || lead.state;
+          lead.custom_state = billingAddress.state || lead.custom_state;
+          lead.country = billingAddress.country || lead.country;
         }
-      } catch (addressError: any) {
-        console.warn("Error fetching Address:", addressError);
-        // Address hatası Lead'i etkilemesin, devam et
+      } catch (addrErr) {
+        console.warn("Billing Address fetch error:", addrErr);
+      }
+
+      // 3. JSON Alanlarını Parse Et
+      const parseJSON = (str: any) => {
+          if (!str) return [];
+          try { return typeof str === 'string' ? JSON.parse(str) : str; } catch { return []; }
+      };
+
+      const businessRegistrationFiles = parseJSON(lead.custom_business_registration_files);
+      const idFiles = parseJSON(lead.custom_id_files);
+      const shareholdersFiles = parseJSON(lead.custom_shareholders_files);
+      const registerExtractFiles = parseJSON(lead.custom_register_extract_files);
+      const hrExtractFiles = parseJSON(lead.custom_hr_extract_files);
+      
+      let businesses = parseJSON(lead.custom_businesses);
+      if (!Array.isArray(businesses)) businesses = [];
+
+      // 4. BUSINESS ADDRESSES (DÜZELTİLDİ)
+      // Her business için ismine (businessName) göre adresini bulup bilgilerini güncelle
+      if (businesses.length > 0) {
+          for (let i = 0; i < businesses.length; i++) {
+              const bus = businesses[i];
+              if (!bus.businessName) continue;
+
+              try {
+                  const bFilters = encodeURIComponent(JSON.stringify([
+                      ["address_title", "=", bus.businessName],
+                      ["address_type", "=", "Shop"]
+                  ]));
+                  const bRes = await erpGet(`/api/resource/Address?filters=${bFilters}&fields=["*"]&limit_page_length=1`, token);
+                  const bAddrs = bRes?.data || bRes || [];
+
+                  if (bAddrs.length > 0) {
+                      const addr = bAddrs[0];
+                      // Adres bilgilerini business objesine merge et
+                      businesses[i] = {
+                          ...bus,
+                          street: addr.address_line1 || bus.street,
+                          city: addr.city || bus.city,
+                          postalCode: addr.pincode || bus.postalCode,
+                          country: addr.country || bus.country,
+                          federalState: addr.state || bus.federalState,
+                          // Custom fields
+                          ownerDirector: addr.b1_owner_director || bus.ownerDirector,
+                          ownerEmail: addr.b1_email_address || bus.ownerEmail,
+                          ownerTelephone: addr.b1_telephone || bus.ownerTelephone,
+                          // Contact Person Override
+                          contactPerson: addr.b1_contact_person || bus.contactPerson,
+                          contactEmail: addr.b1_contact_person_email || bus.contactEmail,
+                          contactTelephone: addr.b1_contact_person_telephone || bus.contactTelephone,
+                          differentContact: !!(addr.b1_contact_person) || bus.differentContact
+                      };
+                  }
+              } catch (bErr) {
+                  console.warn(`Business address fetch error for ${bus.businessName}:`, bErr);
+              }
+          }
+      }
+
+      // 5. SERVİS İSİMLERİNİ ALMA (GÜÇLENDİRİLDİ)
+      let selectedServices: string[] = [];
+      let selectedServiceNames: string[] = [];
+
+      // A) Child Table'dan ID'leri al
+      if (lead.services && Array.isArray(lead.services)) {
+          selectedServices = lead.services.map((s: any) => s.service || s.name).filter(Boolean);
       }
       
-      // JSON string'leri parse et
-      let businessRegistrationFiles = [];
-      let idFiles = [];
-      let shareholdersFiles = [];
-      let registerExtractFiles = [];
-      let hrExtractFiles = [];
-
-      try {
-        if (lead.custom_business_registration_files) {
-          businessRegistrationFiles = JSON.parse(lead.custom_business_registration_files);
-        }
-      } catch (e) {
-        console.warn("Error parsing business registration files:", e);
-      }
-
-      try {
-        if (lead.custom_id_files) {
-          idFiles = JSON.parse(lead.custom_id_files);
-        }
-      } catch (e) {
-        console.warn("Error parsing ID files:", e);
-      }
-
-      try {
-        if (lead.custom_shareholders_files) {
-          shareholdersFiles = JSON.parse(lead.custom_shareholders_files);
-        }
-      } catch (e) {
-        console.warn("Error parsing shareholders files:", e);
-      }
-
-      try {
-        if (lead.custom_register_extract_files) {
-          registerExtractFiles = JSON.parse(lead.custom_register_extract_files);
-        }
-      } catch (e) {
-        console.warn("Error parsing register extract files:", e);
-      }
-
-      try {
-        if (lead.custom_hr_extract_files) {
-          hrExtractFiles = JSON.parse(lead.custom_hr_extract_files);
-        }
-      } catch (e) {
-        console.warn("Error parsing HR extract files:", e);
-      }
-
-      // Parse services from Child Table
-      let selectedServices = [];
-      let selectedServiceNames: string[] = [];
-      try {
-        // Önce Child Table'dan services'i al (eğer varsa)
-        if (lead.services && Array.isArray(lead.services) && lead.services.length > 0) {
-          // Child Table'dan service ID'lerini çıkar
-          selectedServices = lead.services.map((serviceRow: any) => {
-            // service field'ı Link type olduğu için Service DocType'ının name'ini içerir
-            return serviceRow.service || serviceRow.service_name || serviceRow.name;
-          }).filter((id: string) => id); // Boş değerleri filtrele
-        }
-        
-        // Eğer Child Table'da yoksa, eski JSON field'ından oku (backward compatibility)
-        if (selectedServices.length === 0 && lead.custom_selected_services) {
-          selectedServices = JSON.parse(lead.custom_selected_services);
-        }
-        
-        // Service ID'lerinden service name'lerini al
-        if (selectedServices.length > 0) {
-          try {
-            const serviceFilters = encodeURIComponent(JSON.stringify([
-              ["name", "in", selectedServices]
-            ]));
-            const serviceFields = encodeURIComponent(JSON.stringify(["name", "service_name"]));
-            const servicesUrl = `/api/resource/Service?filters=${serviceFilters}&fields=${serviceFields}`;
-            
-            const servicesResult = await erpGet(servicesUrl, token);
-            const services = servicesResult?.data || (Array.isArray(servicesResult) ? servicesResult : []);
-            
-            if (Array.isArray(services) && services.length > 0) {
-              selectedServiceNames = services.map((svc: any) => {
-                return svc.service_name || svc.name || "";
-              }).filter((name: string) => name);
-            }
-          } catch (serviceNameError: any) {
-            console.warn("Error fetching service names:", serviceNameError);
-            // Service name'leri alınamazsa devam et
+      // B) Child Table boşsa eski JSON alanına bak
+      if (selectedServices.length === 0) {
+          selectedServices = parseJSON(lead.custom_selected_services);
+          // Eğer string array değilse düzelt
+          if (Array.isArray(selectedServices) && typeof selectedServices[0] !== 'string') {
+             selectedServices = []; // Format bozuksa sıfırla
           }
-        }
-      } catch (e) {
-        console.warn("Error parsing selected services:", e);
       }
 
-      // Parse businesses array
-      let businesses = [];
-      try {
-        if (lead.custom_businesses) {
-          businesses = JSON.parse(lead.custom_businesses);
-        }
-      } catch (e) {
-        console.warn("Error parsing businesses:", e);
-      }
-
-      // Business Address'lerini çek (Shop type)
-      let businessAddresses = [];
-      try {
-        const businessAddressFilters = [
-          ["link_doctype", "=", "Lead"],
-          ["link_name", "=", leadName],
-          ["address_type", "=", "Shop"]
-        ];
-        const businessAddressFields = ["*"];
-        
-        const businessAddressFiltersParam = encodeURIComponent(JSON.stringify(businessAddressFilters));
-        const businessAddressFieldsParam = encodeURIComponent(JSON.stringify(businessAddressFields));
-        const businessAddressUrl = `/api/resource/Address?filters=${businessAddressFiltersParam}&fields=${businessAddressFieldsParam}`;
-        
-        const businessAddressResult = await erpGet(businessAddressUrl, token);
-
-        businessAddresses = businessAddressResult?.data || (Array.isArray(businessAddressResult) ? businessAddressResult : []);
-        
-        
-        // Business address'lerini businesses array'ine merge et
-        if (Array.isArray(businessAddresses) && businessAddresses.length > 0) {
-          // Her business address'i businesses array'indeki ilgili business ile eşleştir
-          businessAddresses.forEach((address: any, index: number) => {
-            // Business name ile eşleştir
-            const businessName = address.b1_business_name || address.address_title;
-            let businessIndex = businesses.findIndex((b: any) => b.businessName === businessName);
-            
-            // Eğer bulunamazsa, index'e göre eşleştir
-            if (businessIndex === -1 && businesses[index]) {
-              businessIndex = index;
-            }
-            
-            if (businessIndex !== -1 && businesses[businessIndex]) {
-              // Address'ten gelen bilgileri business'e merge et
-              if (address.b1_business_name) businesses[businessIndex].businessName = address.b1_business_name;
-              if (address.b1_owner_director) businesses[businessIndex].ownerDirector = address.b1_owner_director;
-              if (address.b1_telephone) businesses[businessIndex].ownerTelephone = address.b1_telephone;
-              if (address.b1_email_address) businesses[businessIndex].ownerEmail = address.b1_email_address;
-              if (address.b1_street_and_house_number) businesses[businessIndex].street = address.b1_street_and_house_number;
-              if (address.b1_city) businesses[businessIndex].city = address.b1_city;
-              if (address.b1_postal_code) businesses[businessIndex].postalCode = address.b1_postal_code;
-              if (address.b1_federal_state) businesses[businessIndex].federalState = address.b1_federal_state;
-              if (address.b1_country) businesses[businessIndex].country = address.b1_country;
+      // C) ID'leri İsimlere Çevir
+      if (selectedServices.length > 0) {
+          try {
+              const svcFilters = encodeURIComponent(JSON.stringify([["name", "in", selectedServices]]));
+              // İsim olabilecek tüm alanları çek
+              const svcRes = await erpGet(`/api/resource/Service?filters=${svcFilters}&fields=["name","service_name","item_name","description"]`, token);
+              const svcData = svcRes?.data || svcRes || [];
               
-              // Different contact details
-              if (address.b1_contact_person || address.b1_contact_person_telephone || address.b1_contact_person_email) {
-                businesses[businessIndex].differentContact = true;
-                if (address.b1_contact_person) businesses[businessIndex].contactPerson = address.b1_contact_person;
-                if (address.b1_contact_person_telephone) businesses[businessIndex].contactTelephone = address.b1_contact_person_telephone;
-                if (address.b1_contact_person_email) businesses[businessIndex].contactEmail = address.b1_contact_person_email;
+              if (Array.isArray(svcData)) {
+                  selectedServiceNames = selectedServices.map(id => {
+                      const found = svcData.find((s: any) => s.name === id);
+                      // Varsa ismi, yoksa ID'yi kullan
+                      return found ? (found.service_name || found.item_name || found.description || found.name) : id;
+                  });
+              } else {
+                  selectedServiceNames = selectedServices;
               }
-            }
-          });
-          
-        }
-      } catch (businessAddressError: any) {
-        console.warn("Error fetching Business Addresses:", businessAddressError);
-        // Business address hatası Lead'i etkilemesin, devam et
+          } catch (svcErr) {
+              console.warn("Service name fetch error:", svcErr);
+              selectedServiceNames = selectedServices; // Hata durumunda ID'leri göster
+          }
       }
 
       return NextResponse.json({
         success: true,
         lead: {
           ...lead,
-          // Parse edilmiş file arrays
           businessRegistrationFiles,
           idFiles,
           shareholdersFiles,
           registerExtractFiles,
           hrExtractFiles,
-          businesses, // Parse edilmiş businesses array
-          custom_selected_services: selectedServices.length > 0 ? JSON.stringify(selectedServices) : lead.custom_selected_services, // Services array (backward compatibility için JSON)
-          services: lead.services || [], // Child Table services (eğer varsa)
-          selected_service_names: selectedServiceNames.length > 0 ? selectedServiceNames.join(", ") : "", // Service name'leri (görüntüleme için)
+          businesses,
+          // Frontend'in beklediği formatlar
+          custom_selected_services: JSON.stringify(selectedServices), // ID listesi (JSON string)
+          services: lead.services || [], // Raw child table
+          selected_service_names: selectedServiceNames.join(", "), // Virgülle ayrılmış isimler
         },
       });
+
     } else {
-      return NextResponse.json({
-        success: false,
-        lead: null,
-        message: "No lead found for this user",
-      });
+      return NextResponse.json({ success: false, message: "No lead found" });
     }
   } catch (e: any) {
     console.error("ERP get lead error:", e);
-    
-    return NextResponse.json(
-      {
-        error: e.message || "Failed to get lead from ERP",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e.message || "Server Error" }, { status: 500 });
   }
 }
-
