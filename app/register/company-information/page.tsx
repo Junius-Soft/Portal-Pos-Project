@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useRegistration } from "@/contexts/RegistrationContext";
 import ProgressBar from "@/components/ProgressBar";
@@ -11,8 +11,32 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Trash2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import PhoneInput from "react-phone-number-input";
+import PhoneInput, { Country } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
+
+// --- Ülke Kodu Kütüphaneleri ---
+import countries from "i18n-iso-countries";
+import en from "i18n-iso-countries/langs/en.json";
+import tr from "i18n-iso-countries/langs/tr.json";
+import de from "i18n-iso-countries/langs/de.json";
+
+// Dilleri tanıtıyoruz
+countries.registerLocale(en);
+countries.registerLocale(tr);
+countries.registerLocale(de);
+
+// Yardımcı Fonksiyon: Ülke isminden ISO Kodu (Alpha-2) bulur
+// Örnek: "Turkey" -> "TR", "Almanya" -> "DE"
+// Bulamazsa undefined döner (Böylece fallback mantığı kurabiliriz)
+const getCountryIsoCode = (countryName?: string): Country | undefined => {
+  if (!countryName) return undefined;
+  
+  const code = countries.getAlpha2Code(countryName, "en") || 
+               countries.getAlpha2Code(countryName, "tr") ||
+               countries.getAlpha2Code(countryName, "de");
+               
+  return code as Country;
+};
 
 export default function CompanyInformationPage() {
   const router = useRouter();
@@ -23,6 +47,10 @@ export default function CompanyInformationPage() {
   const hasLoadedCompanyInfo = useRef(false);
   const lastSelectedStreetRef = useRef<string | null>(null);
   
+  // Ana Şirketin Ülke Kodunu hesapla (Varsayılan: Almanya 'DE' veya İngiltere 'GB')
+  // Bu kod, yeni eklenen Business'larda varsayılan telefon kodu olacak.
+  const companyMainIso = getCountryIsoCode(formData.companyInfo.country) || "DE";
+
   const [businesses, setBusinesses] = useState([
     {
       businessName: "",
@@ -57,7 +85,7 @@ export default function CompanyInformationPage() {
         city: "",
         postalCode: "",
         federalState: "",
-        country: "",
+        country: "", // Boş geldiğinde companyMainIso kullanılacak
       },
     ]);
   };
@@ -67,7 +95,6 @@ export default function CompanyInformationPage() {
     setBusinesses(businesses.filter((_, i) => i !== index));
   };
 
-  // Tekil alan güncellemesi için (Input değişimleri)
   const updateBusiness = (index: number, field: string, value: any) => {
     setBusinesses((prevBusinesses) => {
       const updatedBusinesses = [...prevBusinesses];
@@ -79,14 +106,12 @@ export default function CompanyInformationPage() {
     });
   };
 
-  // ADRES GÜNCELLEMESİ İÇİN YENİ FONKSİYON (Toplu güncelleme)
   const updateBusinessAddress = (index: number, details: any) => {
     setBusinesses((prevBusinesses) => {
       const updatedBusinesses = [...prevBusinesses];
       updatedBusinesses[index] = {
         ...updatedBusinesses[index],
         street: details.street,
-        // Eğer detaylardan gelen değer varsa onu kullan, yoksa mevcudu koru veya boş bırak
         city: details.city || updatedBusinesses[index].city,
         postalCode: details.postalCode || updatedBusinesses[index].postalCode,
         country: details.country || updatedBusinesses[index].country,
@@ -214,7 +239,6 @@ export default function CompanyInformationPage() {
     });
   };
 
-  // --- ANA ŞİRKET ADRESİ OTOMATİK DOLDURMA (DÜZELTİLDİ) ---
   const handleAddressSelect = (
     address: string,
     details?: { street: string; city: string; country: string; postalCode: string; federalState?: string }
@@ -223,8 +247,6 @@ export default function CompanyInformationPage() {
       const streetValue = details.street || address;
       lastSelectedStreetRef.current = streetValue;
       
-      // Tek bir obje oluşturup toplu güncelleme yapıyoruz
-      // Bu sayede React state güncellemeleri birbirini ezmez
       const updates: any = {
         street: streetValue
       };
@@ -480,10 +502,9 @@ export default function CompanyInformationPage() {
                             >
                             <Trash2 className="w-5 h-5" />
                           </button>
-                           {/* Business içerik wrapper */}
                            <div className="space-y-6">
                             <h2 className="text-lg font-semibold text-gray-800">Business {index + 1} Information</h2>
-                            {renderBusinessForm(index, business, updateBusiness, updateBusinessAddress)}
+                            {renderBusinessForm(index, business, updateBusiness, updateBusinessAddress, companyMainIso)}
                            </div>
                       </CardContent>
                     </Card>
@@ -492,7 +513,7 @@ export default function CompanyInformationPage() {
                   {index === 0 && (
                     <div className="space-y-6">
                       <h2 className="text-lg font-semibold text-gray-800">Business 1 Information</h2>
-                      {renderBusinessForm(index, business, updateBusiness, updateBusinessAddress)}
+                      {renderBusinessForm(index, business, updateBusiness, updateBusinessAddress, companyMainIso)}
                     </div>
                   )}
                 </div>
@@ -527,7 +548,18 @@ export default function CompanyInformationPage() {
 }
 
 // Yardımcı render fonksiyonu
-function renderBusinessForm(index: number, business: any, updateBusiness: any, updateBusinessAddress: any) {
+function renderBusinessForm(
+  index: number, 
+  business: any, 
+  updateBusiness: any, 
+  updateBusinessAddress: any,
+  defaultCompanyIso: Country // Yeni Prop: Şirket Ülkesi (Fallback)
+) {
+  // 1. İşletme ülkesi seçiliyse onu kullan
+  // 2. Seçili değilse Ana Şirket Ülkesini kullan
+  // 3. O da yoksa Almanya (DE) kullan
+  const currentCountryIso = getCountryIsoCode(business.country) || defaultCompanyIso;
+
   return (
     <>
       <div className="space-y-2">
@@ -561,9 +593,14 @@ function renderBusinessForm(index: number, business: any, updateBusiness: any, u
           <Label htmlFor={`ownerTelephone-${index}`} className="text-sm font-semibold text-gray-700">
             Telephone number <span className="text-red-500">*</span>
           </Label>
+          {/* KEY ÖZELLİĞİ EKLENDİ: 
+             key={currentCountryIso} sayesinde ülke kodu her değiştiğinde 
+             bileşen yeniden render olur ve yeni bayrak anında gelir.
+          */}
           <PhoneInput
             international
-            defaultCountry="GB"
+            key={currentCountryIso} 
+            defaultCountry={currentCountryIso}
             value={business.ownerTelephone}
             onChange={(value) => updateBusiness(index, "ownerTelephone", value || "")}
             className="phone-input"
@@ -626,9 +663,11 @@ function renderBusinessForm(index: number, business: any, updateBusiness: any, u
               <Label htmlFor={`contactTelephone-${index}`} className="text-sm font-semibold text-gray-700">
                 Telephone number <span className="text-red-500">*</span>
               </Label>
+              {/* Contact Person için de aynı dinamik Key ve DefaultCountry uygulandı */}
               <PhoneInput
                 international
-                defaultCountry="GB"
+                key={currentCountryIso}
+                defaultCountry={currentCountryIso}
                 value={business.contactTelephone}
                 onChange={(value) => updateBusiness(index, "contactTelephone", value || "")}
                 className="phone-input"
@@ -670,7 +709,6 @@ function renderBusinessForm(index: number, business: any, updateBusiness: any, u
             value={business.street}
             onChange={(address, details) => {
               if (details) {
-                // YENİ: Toplu güncelleme fonksiyonunu kullanıyoruz
                 updateBusinessAddress(index, {
                     street: details.street || address,
                     city: details.city,
