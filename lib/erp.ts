@@ -1,13 +1,39 @@
 const BASE_URL = process.env.NEXT_PUBLIC_ERP_BASE_URL;
 
 /**
+ * ERPNext token formatını düzelt
+ * ERPNext genellikle "token {api_key}:{api_secret}" formatını bekler
+ */
+export function formatToken(token: string): string {
+  if (!token) return token;
+  
+  // Eğer zaten "token " ile başlıyorsa, olduğu gibi döndür
+  if (token.startsWith("token ") || token.startsWith("Token ")) {
+    return token;
+  }
+  
+  // Eğer "Bearer " ile başlıyorsa, "token " ile değiştir (ERPNext için)
+  if (token.startsWith("Bearer ") || token.startsWith("bearer ")) {
+    return token.replace(/^Bearer /i, "token ");
+  }
+  
+  // Eğer sadece api_key:api_secret formatındaysa, "token " ekle
+  if (token.includes(":")) {
+    return `token ${token}`;
+  }
+  
+  // Diğer durumlarda olduğu gibi döndür
+  return token;
+}
+
+/**
  * ERPNext'e GET isteği atar.
  */
 export async function erpGet(endpoint: string, token?: string) {
   if (!BASE_URL) throw new Error("NEXT_PUBLIC_ERP_BASE_URL tanımlı değil.");
   
   const headers: any = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = token;
+  if (token) headers["Authorization"] = formatToken(token);
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "GET",
@@ -28,7 +54,7 @@ export async function erpPost(endpoint: string, data: any, token?: string) {
   if (!BASE_URL) throw new Error("NEXT_PUBLIC_ERP_BASE_URL tanımlı değil.");
 
   const headers: any = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = token;
+  if (token) headers["Authorization"] = formatToken(token);
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "POST",
@@ -46,7 +72,7 @@ export async function erpPut(endpoint: string, data: any, token?: string) {
   if (!BASE_URL) throw new Error("NEXT_PUBLIC_ERP_BASE_URL tanımlı değil.");
 
   const headers: any = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = token;
+  if (token) headers["Authorization"] = formatToken(token);
 
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "PUT",
@@ -111,7 +137,7 @@ export async function erpUploadFile(
   const res = await fetch(`${BASE_URL}/api/method/upload_file`, {
     method: "POST",
     headers: {
-      "Authorization": token
+      "Authorization": formatToken(token)
     },
     body: formData,
   });

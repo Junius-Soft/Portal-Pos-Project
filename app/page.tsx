@@ -16,6 +16,8 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const errorText =
+    typeof error === "string" ? error : (error as any)?.message || JSON.stringify(error);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +51,8 @@ export default function LoginPage() {
 
       // Session storage'a kullanıcı bilgisini kaydet
       sessionStorage.setItem("user", JSON.stringify(data.user));
-      sessionStorage.setItem("userEmail", data.email);
+      // API response email dönmüyor, input email'i kullan
+      sessionStorage.setItem("userEmail", email);
 
       // Başarılı giriş sonrası Lead kontrolü yap
       try {
@@ -58,50 +61,62 @@ export default function LoginPage() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ email: data.email }),
+          body: JSON.stringify({ email }),
         });
 
         const leadCheckData = await leadCheckResponse.json();
 
-        // Eğer Lead yoksa, company-information sayfasına yönlendir
+        // Eğer Lead yoksa, services sayfasına yönlendir (ilk sayfa)
         if (!leadCheckData.hasLead) {
-          router.push("/register/company-information");
+          router.push("/register/services");
           return;
         }
 
           // Lead varsa ama registration tamamlanmamışsa, registration sayfalarına yönlendir
           if (!leadCheckData.isRegistrationCompleted) {
-            // Hangi adımda kaldığını belirle
+            // Hangi adımda kaldığını belirle (yeni sıralama)
             const lead = leadCheckData.lead;
-            let redirectPath = "/register/company-information"; // Default: step 1
-            
-            // Services seçilmiş mi kontrol et (Step 2)
-            if (lead.custom_selected_services) {
-              try {
-                const services = JSON.parse(lead.custom_selected_services);
-                if (Array.isArray(services) && services.length > 0) {
-                  redirectPath = "/register/payment-information"; // Step 3
-                }
-              } catch (e) {
-                // JSON parse hatası, services yok demektir
-              }
-            }
-            
-            // Payment bilgileri var mı kontrol et (Step 3)
-            if (lead.custom_account_holder) {
-              redirectPath = "/register/registration-documents"; // Step 4
-            }
-            
-            // Documents bilgileri var mı kontrol et (Step 4)
-            if (lead.custom_type_of_company && lead.custom_registration_status !== "Completed") {
-              redirectPath = "/register/registration-documents"; // Step 4 - zaten burada
-            }
             
             // Eğer registration status "Completed" ise, dashboard'a git
             if (lead.custom_registration_status === "Completed") {
               router.push("/dashboard");
               return;
             }
+            
+            // Eğer registration status "In Progress" veya "Not Started" ise, ilk sayfaya (services) yönlendir
+            if (lead.custom_registration_status === "In Progress" || lead.custom_registration_status === "Not Started") {
+              router.push("/register/services");
+              return;
+            }
+            
+            let redirectPath = "/register/services"; // Default: step 1 (Services)
+            
+            // Step 1: Services seçilmiş mi kontrol et
+            let hasServices = false;
+            if (lead.custom_selected_services) {
+              try {
+                const services = JSON.parse(lead.custom_selected_services);
+                if (Array.isArray(services) && services.length > 0) {
+                  hasServices = true;
+                }
+              } catch (e) {
+                // JSON parse hatası, services yok demektir
+              }
+            }
+            
+            // Step 2: Documents bilgileri var mı kontrol et
+            if (hasServices && lead.custom_company_type) {
+              redirectPath = "/register/payment-information"; // Step 3
+              
+              // Step 3: Payment bilgileri var mı kontrol et
+              if (lead.custom_account_holder) {
+                redirectPath = "/register/company-information"; // Step 4 (son sayfa)
+              }
+            } else if (hasServices) {
+              // Services var ama documents yok
+              redirectPath = "/register/registration-documents"; // Step 2
+            }
+            // else: Services yok, zaten default olarak "/register/services"
             
             router.push(redirectPath);
             return;
@@ -111,8 +126,8 @@ export default function LoginPage() {
         router.push("/dashboard");
       } catch (leadCheckError) {
         console.error("Error checking lead:", leadCheckError);
-        // Lead kontrolü başarısız olursa, güvenli tarafta kalıp company-information'a yönlendir
-        router.push("/register/company-information");
+        // Lead kontrolü başarısız olursa, güvenli tarafta kalıp ilk sayfaya (services) yönlendir
+        router.push("/register/services");
       }
     } catch (err: any) {
       setError(err.message || "Giriş yapılırken bir hata oluştu");
@@ -136,9 +151,9 @@ export default function LoginPage() {
 
           <CardContent>
             <form className="space-y-6" onSubmit={handleSubmit}>
-          {error && (
+          {errorText && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
+              {errorText}
             </div>
           )}
 

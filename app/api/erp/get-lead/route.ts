@@ -26,10 +26,14 @@ export async function POST(req: NextRequest) {
     try {
         const res = await erpGet(`/api/resource/Lead/${encodeURIComponent(leadName)}`, token);
         fullLead = res?.data || res;
-    } catch (e) {}
+    } catch (e) {
+        // Error fetching full lead
+    }
 
     // Mevcut lead objesini fullLead ile birleştir
-    if (fullLead) Object.assign(lead, fullLead);
+    if (fullLead) {
+        Object.assign(lead, fullLead);
+    }
 
     // --- SERVİS VERİSİNİ PARSE ETME (DÜZELTİLDİ) ---
     let selectedServices: string[] = [];
@@ -68,11 +72,32 @@ export async function POST(req: NextRequest) {
         if (lead.custom_businesses) businesses = JSON.parse(lead.custom_businesses);
     } catch (e) {}
 
+    // 4. Lead'e bağlı Address'leri çek (Ana company address için)
+    let mainCompanyAddress = null;
+    try {
+        // Lead'e bağlı Address'leri filtrele
+        const addressFilters = encodeURIComponent(JSON.stringify([
+            ["links.link_doctype", "=", "Lead"],
+            ["links.link_name", "=", leadName],
+            ["address_type", "=", "Billing"] // Ana company address
+        ]));
+        const addressResult = await erpGet(`/api/resource/Address?filters=${addressFilters}&limit_page_length=1`, token);
+        const addresses = addressResult?.data || (Array.isArray(addressResult) ? addressResult : []);
+        
+        if (addresses.length > 0) {
+            mainCompanyAddress = addresses[0];
+        }
+    } catch (e) {
+        console.error("Error fetching addresses:", e);
+        // Hata olsa bile devam et
+    }
+
     return NextResponse.json({
       success: true,
       lead: {
         ...lead,
         businesses,
+        mainCompanyAddress, // Ana company address'i ekle
         // Frontend'e her zaman string array (JSON) olarak gönderiyoruz
         custom_selected_services: JSON.stringify(selectedServices) 
       }

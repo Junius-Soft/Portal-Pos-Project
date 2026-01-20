@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { erpPost } from "@/lib/erp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,42 +9,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Ad Soyad ve Email zorunludur." }, { status: 400 });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_ERP_BASE_URL;
     const token = process.env.ERP_API_TOKEN;
 
-    if (!baseUrl || !token) {
+    if (!token) {
       return NextResponse.json({ error: "Sunucu ayarları eksik (.env kontrol edin)." }, { status: 500 });
     }
 
     // İŞLEMİ ERP'YE DEVRET
     // Bu Python fonksiyonu ERP'de yüklü olmalı: portal_onboarding.api.signup.start_signup
-    const res = await fetch(`${baseUrl}/api/method/portal_onboarding.api.signup.start_signup`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": token,
-      },
-      body: JSON.stringify({ full_name, email }),
-    });
+    const data = await erpPost(
+      "/api/method/portal_onboarding.api.signup.start_signup",
+      { full_name, email },
+      token
+    );
 
-    const data = await res.json();
-
-    if (!res.ok) {
+    if (data?.exc_type || data?.exception || data?.error) {
       // ERP'den dönen hatayı okunaklı hale getir
       let errorMessage = "Bir hata oluştu.";
-      if (data._server_messages) {
+      if (data?._server_messages) {
         try {
           const msgs = JSON.parse(data._server_messages);
           const msgObj = JSON.parse(msgs[0]);
           errorMessage = msgObj.message || errorMessage;
         } catch {}
-      } else if (data.message) {
+      } else if (data?.message) {
         errorMessage = data.message;
-      } else if (data.exception) {
+      } else if (data?.exception) {
         errorMessage = data.exception;
       }
       
-      return NextResponse.json({ error: errorMessage }, { status: res.status });
+      return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
     return NextResponse.json({ 

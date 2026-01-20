@@ -11,14 +11,14 @@ export default function VerifyPage() {
   const router = useRouter();
   
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
-  const [message, setMessage] = useState("Doğrulanıyor...");
+  const [message, setMessage] = useState("Verifying...");
 
   useEffect(() => {
     const token = searchParams.get("token");
 
     if (!token) {
       setStatus("error");
-      setMessage("Geçersiz veya eksik doğrulama bağlantısı.");
+      setMessage("Invalid or missing verification link.");
       return;
     }
 
@@ -34,27 +34,58 @@ export default function VerifyPage() {
 
         if (!res.ok) {
           setStatus("error");
-          setMessage(data.error || "Doğrulama başarısız oldu.");
+          setMessage(data.error || "Verification failed.");
           return;
         }
 
-        // Başarılı
+        // Success
         setStatus("success");
-        setMessage("E-posta adresiniz başarıyla doğrulandı! Yönlendiriliyorsunuz...");
+        setMessage("Your email has been successfully verified! Redirecting...");
         
-        // Kullanıcı emailini session'a kaydet (wizard'da kullanmak için)
-        // Not: Normalde token'dan email'i de döndürebilirdik ama güvenlik için 
-        // kullanıcıdan tekrar girmesini istemek veya önceki adımdan hatırlamak gerekebilir.
-        // Basitlik için burada localStorage temizliği yapabiliriz.
+        // Save user email to session (to use in wizard)
+        // Note: Normally we could return email from token but for security 
+        // we may need to ask the user to re-enter or remember from previous step.
+        // For simplicity, we can clean localStorage here.
         
+        // If there's data in localStorage, create user and lead
+        if (typeof window !== "undefined") {
+          const initialDataRaw = localStorage.getItem("initialRegistrationData");
+          if (initialDataRaw) {
+            try {
+              const initialData = JSON.parse(initialDataRaw);
+              const completeRes = await fetch("/api/auth/complete-signup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: initialData.email,
+                  companyName: initialData.companyName,
+                  firstName: initialData.firstName,
+                  lastName: initialData.lastName,
+                  password: initialData.password,
+                }),
+              });
+
+              const completeData = await completeRes.json();
+              if (completeRes.ok && completeData.success) {
+                localStorage.setItem("signupCompleted", "true");
+                sessionStorage.setItem("userEmail", initialData.email);
+              } else {
+                console.error("complete-signup failed:", completeData);
+              }
+            } catch (error) {
+              console.error("complete-signup error:", error);
+            }
+          }
+        }
+
         setTimeout(() => {
-          // Kayıt sihirbazına yönlendir
-          router.push("/register/company-information");
+          // Redirect to registration wizard (first step)
+          router.push("/register");
         }, 2000);
 
       } catch (error) {
         setStatus("error");
-        setMessage("Bir bağlantı hatası oluştu.");
+        setMessage("A connection error occurred.");
       }
     };
 
@@ -65,7 +96,7 @@ export default function VerifyPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md shadow-lg text-center">
         <CardHeader>
-          <CardTitle>E-posta Doğrulama</CardTitle>
+          <CardTitle>Email Verification</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col items-center py-8">
           
@@ -79,10 +110,10 @@ export default function VerifyPage() {
           {status === "success" && (
             <>
               <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
-              <h2 className="text-xl font-semibold text-green-700 mb-2">Başarılı!</h2>
+              <h2 className="text-xl font-semibold text-green-700 mb-2">Success!</h2>
               <p className="text-gray-600 mb-6">{message}</p>
-              <Button onClick={() => router.push("/register/company-information")}>
-                Hemen Devam Et
+              <Button onClick={() => router.push("/register")}>
+                Continue Now
               </Button>
             </>
           )}
@@ -90,10 +121,10 @@ export default function VerifyPage() {
           {status === "error" && (
             <>
               <XCircle className="h-12 w-12 text-red-500 mb-4" />
-              <h2 className="text-xl font-semibold text-red-700 mb-2">Hata</h2>
+              <h2 className="text-xl font-semibold text-red-700 mb-2">Error</h2>
               <p className="text-gray-600 mb-6">{message}</p>
               <Button variant="outline" onClick={() => router.push("/signup")}>
-                Tekrar Kayıt Ol
+                Register Again
               </Button>
             </>
           )}

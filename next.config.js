@@ -16,6 +16,17 @@ const nextConfig = {
       },
     ],
   },
+  // pdfjs-dist için webpack config
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Server-side için canvas'ı external olarak işaretle
+      config.externals = config.externals || [];
+      config.externals.push({
+        'canvas': 'commonjs canvas',
+      });
+    }
+    return config;
+  },
 };
 
 module.exports = nextConfig;

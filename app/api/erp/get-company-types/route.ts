@@ -29,83 +29,134 @@ export async function GET(req: NextRequest) {
       "Company_Types",
     ];
     
-    let companyTypesResult;
+    let companyTypesResult = null;
     let foundDocType = null;
+    const BASE_URL = process.env.NEXT_PUBLIC_ERP_BASE_URL;
+    const debugInfo: string[] = [];
     
     // Her DocType adını dene
     for (const doctypeName of possibleDocTypeNames) {
       try {
-        // Önce filter olmadan deneyelim, sonra field'ları kontrol edelim
         const fields = encodeURIComponent(JSON.stringify(["*"]));
-        const url = `/api/resource/${encodeURIComponent(doctypeName)}?fields=${fields}&limit_page_length=1`;
+        const url = `/api/resource/${encodeURIComponent(doctypeName)}?fields=${fields}`;
         
-        const testResult = await erpGet(url, token);
-        
-        // Eğer başarılıysa, aktif olanları filtrele
-        // Field isimleri custom_ prefix'li olabilir
-        try {
-          const filters = encodeURIComponent(JSON.stringify([
-            ["custom_is_active", "=", 1]
-          ]));
-          const fieldsWithCustom = encodeURIComponent(JSON.stringify(["*"]));
-          
-          const filteredUrl = `/api/resource/${encodeURIComponent(doctypeName)}?filters=${filters}&fields=${fieldsWithCustom}`;
-          
-          companyTypesResult = await erpGet(filteredUrl, token);
-        } catch (filterError: any) {
-          // Filter çalışmazsa, filter olmadan tümünü çek
-          const fieldsWithCustom = encodeURIComponent(JSON.stringify(["*"]));
-          const urlWithoutFilter = `/api/resource/${encodeURIComponent(doctypeName)}?fields=${fieldsWithCustom}`;
-          companyTypesResult = await erpGet(urlWithoutFilter, token);
+        // Direkt fetch ile kontrol et (daha detaylı hata bilgisi için)
+        if (BASE_URL) {
+          const response = await fetch(`${BASE_URL}${url}`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": token,
+            },
+            cache: "no-store",
+          });
+
+          if (response.ok) {
+            companyTypesResult = await response.json();
+            foundDocType = doctypeName;
+            debugInfo.push(`Found DocType: ${doctypeName}`);
+            break;
+          } else {
+            const errorText = await response.text();
+            debugInfo.push(`${doctypeName}: ${response.status} - ${errorText.substring(0, 100)}`);
+          }
+        } else {
+          // Fallback: erpGet kullan
+          companyTypesResult = await erpGet(url, token);
+          if (companyTypesResult) {
+            foundDocType = doctypeName;
+            debugInfo.push(`Found DocType (via erpGet): ${doctypeName}`);
+            break;
+          }
         }
-        
-        
-        foundDocType = doctypeName;
-        break;
       } catch (error: any) {
+        debugInfo.push(`${doctypeName}: Error - ${error?.message || 'Unknown error'}`);
         continue;
       }
     }
     
-    if (!foundDocType) {
-      // Build sırasında environment variable'lar yüklenmemiş olabilir
-      // Runtime'da tekrar denenecek, bu yüzden boş array döndür
-      console.warn(
+    
+    if (!foundDocType || !companyTypesResult) {
+      console.error(
         `Could not find Company Type DocType. Tried: ${possibleDocTypeNames.join(", ")}. ` +
-        `This might be a build-time issue. Will retry at runtime.`
+        `Debug info: ${debugInfo.join(" | ")}`
       );
       return NextResponse.json({
-        success: true,
+        success: false,
+        error: `Company Type DocType not found. Tried: ${possibleDocTypeNames.join(", ")}`,
+        debug: process.env.NODE_ENV === "development" ? debugInfo : undefined,
         companyTypes: [],
-      });
+      }, { status: 404 });
     }
 
     // Response formatını kontrol et
     let companyTypes = [];
     if (companyTypesResult?.data && Array.isArray(companyTypesResult.data)) {
       companyTypes = companyTypesResult.data;
+      console.log(`Found ${companyTypes.length} company types in data array`);
     } else if (Array.isArray(companyTypesResult)) {
       companyTypes = companyTypesResult;
     } else if (companyTypesResult?.message && Array.isArray(companyTypesResult.message)) {
       companyTypes = companyTypesResult.message;
+      console.log(`Found ${companyTypes.length} company types in message`);
+    } else {
+      console.warn("Unexpected company types result format:", {
+        hasData: !!companyTypesResult?.data,
+        isArray: Array.isArray(companyTypesResult),
+        hasMessage: !!companyTypesResult?.message,
+        keys: Object.keys(companyTypesResult || {}),
+      });
+    }
+    
+    // Eğer hala boşsa ve companyTypesResult varsa, içeriğini logla
+    if (companyTypes.length === 0 && companyTypesResult) {
+      console.warn("Company types array is empty. Full result:", JSON.stringify(companyTypesResult).substring(0, 500));
     }
 
 
     // Company type'ları formatla - custom_ prefix'li field'ları da kontrol et
-    const processedCompanyTypes = Array.isArray(companyTypes) ? companyTypes.map((ct: any) => {
+    const processedCompanyTypes = Array.isArray(companyTypes) ? companyTypes
+      .filter((ct: any) => {
+        // Disabled olmayan company type'ları filtrele
+        if (ct.disabled !== undefined) {
+          return !ct.disabled;
+        }
+        // custom_is_active veya is_active field'ı varsa kontrol et
+        if (ct.custom_is_active !== undefined) {
+          return ct.custom_is_active;
+        }
+        if (ct.is_active !== undefined) {
+          return ct.is_active;
+        }
+        // Status field'ı yoksa, hepsini göster
+        return true;
+      })
+      .map((ct: any) => {
       // Field isimleri custom_ prefix'li olabilir
-      const companyTypeName = ct.custom_company_type_name || ct.company_type_name || ct.name;
+      // Company Type DocType field: company_type_name (standart field)
+      const companyTypeName = ct.company_type_name || ct.name;
       const description = ct.custom_description || ct.description || "";
       const isActive = ct.custom_is_active !== undefined ? ct.custom_is_active : 
-                      (ct.is_active !== undefined ? ct.is_active : true);
+                      (ct.is_active !== undefined ? ct.is_active : 
+                      (ct.disabled !== undefined ? !ct.disabled : true));
+      
+      // Company Type ID'sini al
+      const companyTypeId = ct.name || ct.id || "";
+      
+      if (!companyTypeId) {
+        console.warn("Company Type without ID/name found:", ct);
+      }
       
       return {
-        id: ct.name,
-        name: companyTypeName,
+        id: companyTypeId,
+        name: companyTypeName || companyTypeId, // Eğer isim yoksa ID'yi kullan
         description: description,
         isActive: isActive,
       };
-    }) : [];
+    })
+    .filter((ct: any) => ct.id) // ID'si olmayan company type'ları filtrele
+    : [];
+    
 
 
     return NextResponse.json({

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import RegisterButton from "@/components/RegisterButton";
-import { Eye, EyeOff, CheckCircle, Mail } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, Mail, Loader2, FileText } from "lucide-react";
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 
@@ -19,6 +19,7 @@ export default function RegisterPage() {
   // E-posta gönderildi mi durumunu kontrol eden state
   const [isEmailSent, setIsEmailSent] = useState(false);
   const [loading, setLoading] = useState(false);
+
 
   const [formData, setFormData] = useState({
     reference: "",
@@ -107,6 +108,7 @@ export default function RegisterPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+ 
   // Reference canlı doğrulama
   useEffect(() => {
     const reference = formData.reference?.trim();
@@ -144,15 +146,15 @@ export default function RegisterPage() {
     e.preventDefault();
 
     if (!isPasswordValid(formData.password)) {
-      alert("Parola gereksinimleri karşılanmıyor.");
+      alert("Password requirements are not met.");
       return;
     }
     if (!passwordMatch) {
-      alert("Parolalar eşleşmiyor.");
+      alert("Passwords do not match.");
       return;
     }
     if (!agreedToTerms) {
-      alert("Lütfen kullanım şartlarını kabul edin.");
+      alert("Please accept the terms of use.");
       return;
     }
 
@@ -193,7 +195,7 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Kayıt başlatılamadı.");
+        alert(data.error || "Registration could not be started.");
         setLoading(false);
         return;
       }
@@ -214,7 +216,7 @@ export default function RegisterPage() {
 
     } catch (error) {
       console.error("Signup error:", error);
-      alert("Bir hata oluştu. Lütfen tekrar deneyin.");
+      alert("An error occurred. Please try again.");
       setLoading(false);
     }
   };
@@ -228,18 +230,18 @@ export default function RegisterPage() {
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
               <Mail className="w-8 h-8 text-green-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">E-postanızı Kontrol Edin</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Check Your Email</h2>
             <p className="text-gray-600 mb-6 px-4">
-              Doğrulama bağlantısını <strong>{formData.email}</strong> adresine gönderdik.
+              We've sent a verification link to <strong>{formData.email}</strong>.
               <br /><br />
-              Kaydınızı tamamlamak için lütfen gelen kutunuzdaki (veya spam klasöründeki) linke tıklayın.
+              Please click the link in your inbox (or spam folder) to complete your registration.
             </p>
             <Button 
               variant="outline" 
               onClick={() => router.push("/login")}
               className="w-full"
             >
-              Giriş Ekranına Dön
+              Return to Login
             </Button>
           </CardContent>
         </Card>
@@ -263,7 +265,9 @@ export default function RegisterPage() {
 
           <CardContent>
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {/* Form Alanları (Değişiklik Yok) */}
+              
+
+             
               
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -402,16 +406,16 @@ export default function RegisterPage() {
                     </div>
                     <div className="text-xs text-gray-500 space-y-1 mt-3">
                       <div className={passwordStrength.checks.lowercase && passwordStrength.checks.uppercase ? "text-green-600" : ""}>
-                        ✓ Küçük ve büyük harf içermeli [a-z / A-Z]
+                        ✓ Must contain lowercase and uppercase letters [a-z / A-Z]
                       </div>
                       <div className={passwordStrength.checks.digits ? "text-green-600" : ""}>
-                        {passwordStrength.checks.digits ? "✓" : "○"} En az bir rakam içermeli [0-9]
+                        {passwordStrength.checks.digits ? "✓" : "○"} Must contain at least one digit [0-9]
                       </div>
                       <div className={passwordStrength.checks.length ? "text-green-600" : ""}>
-                        {passwordStrength.checks.length ? "✓" : "○"} 8-25 karakter arası olmalı
+                        {passwordStrength.checks.length ? "✓" : "○"} Must be between 8-25 characters
                       </div>
                       <div className={passwordStrength.checks.special ? "text-green-600" : ""}>
-                        {passwordStrength.checks.special ? "✓" : "○"} Özel karakter önerilir [@, #, $, %, vb.]
+                        {passwordStrength.checks.special ? "✓" : "○"} Special characters recommended [@, #, $, %, etc.]
                       </div>
                     </div>
                   </div>

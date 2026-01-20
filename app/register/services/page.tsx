@@ -44,8 +44,19 @@ export default function ServicesPage() {
     try {
       const response = await fetch("/api/erp/get-services");
       const data = await response.json();
+      console.log("Services API response:", data);
+      
       if (data.success && Array.isArray(data.services)) {
+        console.log(`Loaded ${data.services.length} services`);
         setServices(data.services);
+      } else {
+        console.error("Services API error or invalid format:", data);
+        if (data.error) {
+          console.error("Error message:", data.error);
+        }
+        if (data.debug) {
+          console.error("Debug info:", data.debug);
+        }
       }
     } catch (error) {
       console.error("Error fetching services:", error);
@@ -54,7 +65,51 @@ export default function ServicesPage() {
     }
   }, []);
 
-  // --- 2. ERP'DEN KAYITLI SEÇİMLERİ GETİR ---
+  // --- 2. COMPANY TYPE'ı KAYDET (İlk yüklemede) ---
+  const saveCompanyType = useCallback(async (userEmail: string) => {
+    if (typeof window === "undefined") return;
+    
+    const storedCompanyType = localStorage.getItem("selectedCompanyType");
+    if (!storedCompanyType) return;
+
+    try {
+      // Company Type name'i almak için API'den çek
+      let companyTypeName = "";
+      try {
+        const companyTypesRes = await fetch("/api/erp/get-company-types");
+        const companyTypesData = await companyTypesRes.json();
+        if (companyTypesData.success && companyTypesData.companyTypes) {
+          const found = companyTypesData.companyTypes.find((ct: any) => ct.id === storedCompanyType);
+          companyTypeName = found?.name || "";
+        }
+      } catch (e) {
+        console.error("Error fetching company types:", e);
+      }
+
+      const res = await fetch("/api/erp/update-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail,
+          documents: {
+            typeOfCompany: storedCompanyType,
+            typeOfCompanyName: companyTypeName
+          }
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        console.log("✅ Company type saved to Lead:", storedCompanyType);
+        // Kaydedildikten sonra localStorage'dan temizle
+        localStorage.removeItem("selectedCompanyType");
+      }
+    } catch (error) {
+      console.error("Error saving company type:", error);
+    }
+  }, []);
+
+  // --- 3. ERP'DEN KAYITLI SEÇİMLERİ GETİR ---
   const loadSelectedServices = useCallback(async () => {
     // Servis listesi boşsa eşleştirme yapamayız, bekle.
     if (services.length === 0) return;
@@ -68,6 +123,9 @@ export default function ServicesPage() {
       }
     }
     if (!userEmail) return;
+
+    // Company Type'ı kaydet (eğer varsa)
+    await saveCompanyType(userEmail);
 
     try {
       const res = await fetch("/api/erp/get-lead", {
@@ -151,6 +209,9 @@ export default function ServicesPage() {
         const initialData = localStorage.getItem("initialRegistrationData");
         if (initialData) try { userEmail = JSON.parse(initialData).email; } catch(e){}
     }
+    if (!userEmail) {
+        userEmail = localStorage.getItem("userEmail") || "";
+    }
     if (!userEmail) return;
 
     try {
@@ -205,14 +266,15 @@ export default function ServicesPage() {
       return;
     }
     await saveSelectionToErp();
-    goToStep(3);
-    router.push("/register/payment-information");
+    goToStep(2); // İkinci sayfa: Registration Documents
+    router.push("/register/registration-documents");
   };
 
   const handleBack = async () => {
     await saveSelectionToErp();
-    goToStep(1);
-    router.push("/register/company-information");
+    // İlk sayfa olduğu için geri gidilecek yer yok
+    // Veya login sayfasına yönlendirilebilir
+    router.push("/");
   };
 
   return (
@@ -226,6 +288,11 @@ export default function ServicesPage() {
 
         {loading ? (
            <div className="text-center py-12">Loading...</div>
+        ) : services.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-600 mb-4">No services found.</p>
+            <p className="text-sm text-gray-500">Please check the browser console for details.</p>
+          </div>
         ) : (
           <div className="space-y-8">
             {services.map((service) => {

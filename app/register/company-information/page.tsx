@@ -9,6 +9,7 @@ import RegisterButton from "@/components/RegisterButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Trash2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import PhoneInput, { Country } from "react-phone-number-input";
@@ -37,6 +38,7 @@ export default function CompanyInformationPage() {
     formData.companyInfo.restaurantCount || "1"
   );
   const hasLoadedCompanyInfo = useRef(false);
+  const hasCompletedSignup = useRef(false);
   const lastSelectedStreetRef = useRef<string | null>(null);
   const companyMainIso = getCountryIsoCode(formData.companyInfo.country) || "DE";
 
@@ -133,9 +135,56 @@ export default function CompanyInformationPage() {
   }, [restaurantCount, formData.currentStep, goToStep, updateFormData]);
 
   useEffect(() => {
-    if (hasLoadedCompanyInfo.current) {
-      return;
-    }
+    if (hasCompletedSignup.current) return;
+    hasCompletedSignup.current = true;
+
+    const completeSignupIfNeeded = async () => {
+      if (typeof window === "undefined") return;
+      const completed = localStorage.getItem("signupCompleted");
+      if (completed === "true") return;
+
+      const initialDataRaw = localStorage.getItem("initialRegistrationData");
+      if (!initialDataRaw) return;
+
+      let initialData: any = null;
+      try {
+        initialData = JSON.parse(initialDataRaw);
+      } catch {
+        return;
+      }
+
+      if (!initialData?.email) return;
+
+      try {
+        const res = await fetch("/api/auth/complete-signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: initialData.email,
+            companyName: initialData.companyName,
+            firstName: initialData.firstName,
+            lastName: initialData.lastName,
+            password: initialData.password,
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          localStorage.setItem("signupCompleted", "true");
+          sessionStorage.setItem("userEmail", initialData.email);
+        } else {
+          console.error("complete-signup failed:", data);
+        }
+      } catch (error) {
+        console.error("complete-signup error:", error);
+      }
+    };
+
+    completeSignupIfNeeded();
+  }, []);
+
+  useEffect(() => {
+    if (hasLoadedCompanyInfo.current) return;
     hasLoadedCompanyInfo.current = true;
 
     const loadCompanyInfo = async () => {
@@ -143,32 +192,32 @@ export default function CompanyInformationPage() {
       if (typeof window !== "undefined") {
         const initialData = localStorage.getItem("initialRegistrationData");
         if (initialData) {
-          try {
-            const parsed = JSON.parse(initialData);
-            userEmail = parsed.email || "";
-          } catch (error) {
-            console.error("Error parsing initial data:", error);
-          }
+          try { userEmail = JSON.parse(initialData).email || ""; } catch (e) {}
         }
-        if (!userEmail) {
-          const sessionEmail = sessionStorage.getItem("userEmail");
-          if (sessionEmail) {
-            userEmail = sessionEmail;
-          }
-        }
+        if (!userEmail) userEmail = sessionStorage.getItem("userEmail") || "";
+        if (!userEmail) userEmail = localStorage.getItem("userEmail") || "";
       }
 
-      if (!userEmail) {
-        hasLoadedCompanyInfo.current = false;
-        return;
+      if (!userEmail) { hasLoadedCompanyInfo.current = false; return; }
+
+      // Önce parsed bilgileri localStorage'dan kontrol et (PDF'den okunan bilgiler)
+      let parsedCompanyInfo: any = null;
+      if (typeof window !== "undefined") {
+        const parsedData = localStorage.getItem("parsedCompanyInfo");
+        if (parsedData) {
+          try {
+            parsedCompanyInfo = JSON.parse(parsedData);
+            console.log("✅ Found parsed company info from PDF:", parsedCompanyInfo);
+          } catch (e) {
+            console.error("Error parsing stored company info:", e);
+          }
+        }
       }
 
       try {
         const res = await fetch("/api/erp/get-lead", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: userEmail }),
         });
 
@@ -176,41 +225,130 @@ export default function CompanyInformationPage() {
 
         if (data.success && data.lead) {
           const lead = data.lead;
-          if (lead.company_name || lead.custom_vat_identification_number || lead.custom_tax_id_number || 
-              lead.address_line1 || lead.city || lead.country) {
+          // Kontrol ettiğimiz alanlar (Yeni isimler eklendi)
+          if (lead.company_name || lead.custom_vat_number || lead.custom_tax_id || 
+              lead.address_line1 || lead.city || lead.country || lead.mainCompanyAddress || parsedCompanyInfo) {
+            
             const companyInfo: any = {};
             
-            if (lead.company_name) companyInfo.companyName = lead.company_name;
-            if (lead.custom_vat_identification_number) companyInfo.vatIdentificationNumber = lead.custom_vat_identification_number;
-            if (lead.custom_custom_tax_id_number) {
-              companyInfo.taxIdNumber = lead.custom_custom_tax_id_number;
-            } else if (lead.custom_tax_id_number) {
-              companyInfo.taxIdNumber = lead.custom_tax_id_number;
+            // Önce parsed bilgileri yükle (PDF'den okunan bilgiler öncelikli)
+            if (parsedCompanyInfo) {
+              console.log("📄 Loading parsed company info from PDF (PRIORITY)");
+              // Parsed bilgiler öncelikli - tüm alanları yükle
+              if (parsedCompanyInfo.companyName) companyInfo.companyName = parsedCompanyInfo.companyName;
+              if (parsedCompanyInfo.vatIdentificationNumber) companyInfo.vatIdentificationNumber = parsedCompanyInfo.vatIdentificationNumber;
+              if (parsedCompanyInfo.taxIdNumber) companyInfo.taxIdNumber = parsedCompanyInfo.taxIdNumber;
+              if (parsedCompanyInfo.restaurantCount) companyInfo.restaurantCount = parsedCompanyInfo.restaurantCount;
+              if (parsedCompanyInfo.street) companyInfo.street = parsedCompanyInfo.street;
+              if (parsedCompanyInfo.city) companyInfo.city = parsedCompanyInfo.city;
+              if (parsedCompanyInfo.zipCode) companyInfo.zipCode = parsedCompanyInfo.zipCode;
+              if (parsedCompanyInfo.country) companyInfo.country = parsedCompanyInfo.country;
+              if (parsedCompanyInfo.federalState) companyInfo.federalState = parsedCompanyInfo.federalState;
+              
+              console.log("✅ Parsed company info loaded:", companyInfo);
+              console.log("📋 Business info from PDF:", {
+                businessName: parsedCompanyInfo.businessName,
+                ownerDirector: parsedCompanyInfo.ownerDirector,
+                ownerEmail: parsedCompanyInfo.ownerEmail,
+                ownerTelephone: parsedCompanyInfo.ownerTelephone
+              });
             }
-            const addressLine1 = lead.address_line1 || lead.custom_address_line1;
-            const addressLine2 = lead.address_line2;
-            if (addressLine1 || addressLine2) {
-              const streetParts = [];
-              if (addressLine1) streetParts.push(addressLine1);
-              if (addressLine2) streetParts.push(addressLine2);
-              companyInfo.street = streetParts.join(" ");
-            }
-            if (lead.city) companyInfo.city = lead.city;
-            if (lead.pincode || lead.custom_pincode) {
-              companyInfo.zipCode = lead.pincode || lead.custom_pincode;
-            }
-            if (lead.state || lead.custom_state) {
-              companyInfo.federalState = lead.state || lead.custom_state;
-            }
-            if (lead.country) companyInfo.country = lead.country;
+            
+            // Lead'den gelen bilgileri sadece parsed bilgiler yoksa veya eksikse ekle
+            // Parsed bilgiler öncelikli olduğu için, sadece eksik alanları doldur
+            if (!companyInfo.companyName && lead.company_name) companyInfo.companyName = lead.company_name;
+            if (!companyInfo.vatIdentificationNumber && lead.custom_vat_number) companyInfo.vatIdentificationNumber = lead.custom_vat_number;
+            if (!companyInfo.taxIdNumber && lead.custom_tax_id) companyInfo.taxIdNumber = lead.custom_tax_id;
+            if (!companyInfo.restaurantCount && lead.custom_restaurant_count) companyInfo.restaurantCount = String(lead.custom_restaurant_count);
 
-            updateFormData({
-              companyInfo: companyInfo,
-            });
+            // Adres bilgileri - Sadece parsed bilgiler yoksa Address DocType'ından veya Lead'den yükle
+            // Parsed bilgiler öncelikli olduğu için, sadece eksik alanları doldur
+            if (!companyInfo.street || !companyInfo.city || !companyInfo.country) {
+              // ÖNCE Address DocType'ından kontrol et (Billing type)
+              if (lead.mainCompanyAddress) {
+                const address = lead.mainCompanyAddress;
+                console.log("📍 Loading address from Address DocType:", address.name);
+                
+                // Address DocType'ından bilgileri yükle (sadece eksik alanlar)
+                if (!companyInfo.street && address.address_line1) companyInfo.street = address.address_line1;
+                if (!companyInfo.city && address.city) companyInfo.city = address.city;
+                if (!companyInfo.zipCode && address.pincode) companyInfo.zipCode = address.pincode;
+                if (!companyInfo.federalState && address.state) companyInfo.federalState = address.state;
+                if (!companyInfo.country && address.country) companyInfo.country = address.country;
+                
+                console.log("✅ Address loaded from Address DocType (missing fields only)");
+              }
+              // Eğer Address DocType'ında yoksa, Lead'in kendi address field'larına bak
+              else {
+                const addressLine1 = lead.address_line1 || lead.custom_address_line1;
+                const addressLine2 = lead.address_line2;
+                
+                // Eğer structured adres bilgileri varsa, onları kullan (sadece eksik alanlar)
+                if (addressLine1 || addressLine2 || lead.city || lead.country) {
+                  if (!companyInfo.street && (addressLine1 || addressLine2)) {
+                    const streetParts = [];
+                    if (addressLine1) streetParts.push(addressLine1);
+                    if (addressLine2) streetParts.push(addressLine2);
+                    companyInfo.street = streetParts.join(" ");
+                  }
+                  if (!companyInfo.city && lead.city) companyInfo.city = lead.city;
+                  if (!companyInfo.zipCode && (lead.pincode || lead.custom_pincode)) {
+                    companyInfo.zipCode = lead.pincode || lead.custom_pincode;
+                  }
+                  if (!companyInfo.federalState && (lead.state || lead.custom_state)) {
+                    companyInfo.federalState = lead.state || lead.custom_state;
+                  }
+                  if (!companyInfo.country && lead.country) companyInfo.country = lead.country;
+                }
+              }
+            }
+
+            updateFormData({ companyInfo: companyInfo });
           }
 
+          // Lead'den businesses yükle, ama PDF'den okunan bilgiler öncelikli
           if (lead.businesses && Array.isArray(lead.businesses) && lead.businesses.length > 0) {
-            setBusinesses(lead.businesses);
+            // Eğer parsedCompanyInfo varsa, PDF bilgilerini lead.businesses ile merge et
+            if (parsedCompanyInfo && (parsedCompanyInfo.ownerDirector || parsedCompanyInfo.businessName)) {
+              const mergedBusinesses = lead.businesses.map((biz: any, index: number) => {
+                if (index === 0) {
+                  // İlk business için PDF bilgileri öncelikli
+                  return {
+                    ...biz,
+                    businessName: parsedCompanyInfo.businessName || biz.businessName || "",
+                    ownerDirector: parsedCompanyInfo.ownerDirector || biz.ownerDirector || "",
+                    ownerEmail: parsedCompanyInfo.ownerEmail || biz.ownerEmail || "",
+                    ownerTelephone: parsedCompanyInfo.ownerTelephone || biz.ownerTelephone || "",
+                    street: parsedCompanyInfo.street || biz.street || "",
+                    city: parsedCompanyInfo.city || biz.city || "",
+                    postalCode: parsedCompanyInfo.zipCode || biz.postalCode || "",
+                    country: parsedCompanyInfo.country || biz.country || "",
+                    federalState: parsedCompanyInfo.federalState || biz.federalState || "",
+                  };
+                }
+                return biz;
+              });
+              setBusinesses(mergedBusinesses);
+            } else {
+              setBusinesses(lead.businesses);
+            }
+          } else if (parsedCompanyInfo && (parsedCompanyInfo.ownerDirector || parsedCompanyInfo.businessName)) {
+            // Lead'de businesses yoksa ama parsedCompanyInfo varsa, yeni business oluştur
+            setBusinesses([{
+              businessName: parsedCompanyInfo.businessName || "",
+              ownerDirector: parsedCompanyInfo.ownerDirector || "",
+              ownerTelephone: parsedCompanyInfo.ownerTelephone || "",
+              ownerEmail: parsedCompanyInfo.ownerEmail || "",
+              differentContact: false,
+              contactPerson: "",
+              contactTelephone: "",
+              contactEmail: "",
+              street: parsedCompanyInfo.street || "",
+              city: parsedCompanyInfo.city || "",
+              postalCode: parsedCompanyInfo.zipCode || "",
+              federalState: parsedCompanyInfo.federalState || "",
+              country: parsedCompanyInfo.country || "",
+            }]);
           }
         }
       } catch (error) {
@@ -261,7 +399,7 @@ export default function CompanyInformationPage() {
     }
   };
 
-  const handleNext = async () => {
+  const handleSubmit = async () => {
     if (!formData.companyInfo.companyName || !formData.companyInfo.vatIdentificationNumber) {
       alert("Please fill in required fields");
       return;
@@ -283,6 +421,10 @@ export default function CompanyInformationPage() {
         if (sessionEmail) {
           userEmail = sessionEmail;
         }
+      }
+      if (!userEmail) {
+        const localEmail = localStorage.getItem("userEmail");
+        if (localEmail) userEmail = localEmail;
       }
     }
 
@@ -314,6 +456,7 @@ export default function CompanyInformationPage() {
       if (formData.companyInfo.federalState) cleanCompanyInfo.federalState = formData.companyInfo.federalState;
       if (formData.companyInfo.zipCode) cleanCompanyInfo.zipCode = formData.companyInfo.zipCode;
       
+      // Registration status'u "Completed" olarak işaretle (son sayfa)
       const res = await fetch("/api/erp/update-lead", {
         method: "POST",
         headers: {
@@ -323,6 +466,9 @@ export default function CompanyInformationPage() {
           email: userEmail,
           companyInfo: cleanCompanyInfo,
           businesses: businesses,
+          documents: {
+            isCompleted: true // Registration tamamlandı
+          }
         }),
       });
 
@@ -333,13 +479,27 @@ export default function CompanyInformationPage() {
         return;
       }
       
+      // Company info'yu localStorage'a kaydet (validation için)
+      try {
+        localStorage.setItem("companyInfo", JSON.stringify(cleanCompanyInfo));
+        console.log("✅ Company info saved to localStorage:", cleanCompanyInfo);
+      } catch (e) {
+        console.error("❌ Error saving companyInfo to localStorage:", e);
+      }
+      
+      // Registration tamamlandı, dashboard'a yönlendir
+      alert("Registration completed successfully! Redirecting to dashboard...");
+      router.push("/dashboard");
+      
     } catch (error) {
       alert("Failed to update lead in ERP. Please try again.");
       return;
     }
+  };
 
-    goToStep(2);
-    router.push("/register/services");
+  const handleBack = () => {
+    goToStep(3); // Üçüncü sayfa: Payment Information
+    router.push("/register/payment-information");
   };
 
   return (
@@ -528,9 +688,17 @@ export default function CompanyInformationPage() {
             </button>
           </div>
 
-          <div className="flex justify-center pt-4">
-            <RegisterButton type="button" onClick={handleNext}>
-              Next
+          <div className="flex justify-center gap-4 pt-4">
+            <Button
+              type="button"
+              onClick={handleBack}
+              variant="outline"
+              className="px-8 h-[50px] text-base font-semibold border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Back
+            </Button>
+            <RegisterButton type="button" onClick={handleSubmit}>
+              Submit
             </RegisterButton>
           </div>
         </div>
