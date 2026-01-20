@@ -732,12 +732,12 @@ export async function POST(req: NextRequest) {
                             
                             const existingUrls = existingUrlsRaw.map(normalizeUrl).filter((u: string) => u);
                             const newUrls = newUrlsRaw.map(normalizeUrl).filter((u: string) => u);
-                            const allUrls = [...new Set([...existingUrls, ...newUrls])];
+                            const allUrls = Array.from(new Set([...existingUrls, ...newUrls]));
                             
                             // File name'leri birleştir
                             const existingFileNames = existing.fileNames || [];
                             const newFileNames = existingInfo.fileNames || [];
-                            const allFileNames = [...new Set([...existingFileNames, ...newFileNames])];
+                            const allFileNames = Array.from(new Set([...existingFileNames, ...newFileNames]));
                             
                             allDocumentData[docId] = {
                                 ...existingInfo,

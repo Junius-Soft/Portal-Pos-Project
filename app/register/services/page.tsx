@@ -185,7 +185,7 @@ export default function ServicesPage() {
     } catch (error) {
       console.error("Load error:", error);
     }
-  }, [services]); 
+  }, [services, saveCompanyType]); 
 
   // --- Initial Load ---
   useEffect(() => {
