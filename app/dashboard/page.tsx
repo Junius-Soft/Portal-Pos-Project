@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,12 +26,54 @@ export default function DashboardPage() {
       try {
         setUser(JSON.parse(storedUser));
         setUserEmail(storedEmail);
+        
+        // Check registration status - eğer "Completed" değilse registration sayfasına yönlendir
+        const checkRegistrationStatus = async () => {
+          try {
+            const res = await fetch("/api/erp/get-lead", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ email: storedEmail }),
+            });
+
+            const data = await res.json();
+            
+            if (data.success && data.lead) {
+              const registrationStatus = data.lead.custom_registration_status;
+              console.log("📋 Dashboard - Registration Status:", registrationStatus);
+              
+              // Eğer registration "Completed" değilse, ilk sayfaya (services) yönlendir
+              if (registrationStatus !== "Completed") {
+                console.log("⚠️ Registration not completed, redirecting to services (first page)...");
+                router.push("/register/services");
+                return;
+              }
+            } else {
+              // Lead bulunamadı, ilk sayfaya (services) yönlendir
+              console.log("⚠️ Lead not found, redirecting to services (first page)...");
+              router.push("/register/services");
+              return;
+            }
+          } catch (error) {
+            console.error("❌ Error checking registration status:", error);
+            // Hata durumunda da ilk sayfaya (services) yönlendir (güvenli taraf)
+            router.push("/register/services");
+            return;
+          }
+          
+          setLoading(false);
+        };
+        
+        checkRegistrationStatus();
       } catch (error) {
         console.error("Error parsing user data:", error);
         router.push("/");
       }
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   }, [router]);
 
   const handleLogout = () => {
@@ -51,6 +93,14 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const displayName =
+    typeof user === "string"
+      ? user
+      : user?.full_name || user?.message || user?.name || "";
+
+  const displayUserText =
+    displayName || (user ? JSON.stringify(user) : "N/A");
 
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
@@ -82,7 +132,7 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   <div>
                     <span className="text-sm font-medium text-gray-600">Name:</span>
-                    <span className="ml-2 text-sm text-gray-900">{user || "N/A"}</span>
+                    <span className="ml-2 text-sm text-gray-900">{displayUserText}</span>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-600">Email:</span>

@@ -48,6 +48,9 @@ export default function RegistrationDocumentsPage() {
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [parsingPdf, setParsingPdf] = useState(false);
+  const errorText =
+    typeof error === "string" ? error : (error as any)?.message || JSON.stringify(error);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const hasLoadedCompanyTypes = useRef(false);
@@ -62,11 +65,20 @@ export default function RegistrationDocumentsPage() {
     try {
       const res = await fetch("/api/erp/get-company-types");
       const data = await res.json();
+      console.log("Company Types API response:", data);
 
       if (data.success && data.companyTypes) {
+        console.log(`Loaded ${data.companyTypes.length} company types`);
         setCompanyTypes(data.companyTypes);
         hasLoadedCompanyTypes.current = true;
       } else {
+        console.error("Company Types API error or invalid format:", data);
+        if (data.error) {
+          console.error("Error message:", data.error);
+        }
+        if (data.debug) {
+          console.error("Debug info:", data.debug);
+        }
         setError(data.error || "Failed to load company types");
       }
     } catch (error: any) {
@@ -147,6 +159,10 @@ export default function RegistrationDocumentsPage() {
           }
         }
       }
+      if (!userEmail) {
+        const localEmail = localStorage.getItem("userEmail");
+        if (localEmail) userEmail = localEmail;
+      }
     }
 
     if (!userEmail) {
@@ -168,8 +184,8 @@ export default function RegistrationDocumentsPage() {
         const lead = data.lead;
         
         // Type of Company
-        if (lead.custom_type_of_company) {
-          setSelectedCompanyType(lead.custom_type_of_company);
+        if (lead.custom_company_type) {
+          setSelectedCompanyType(lead.custom_company_type);
         }
       }
     } catch (error) {
@@ -259,8 +275,8 @@ export default function RegistrationDocumentsPage() {
   };
 
   const handleBack = () => {
-    goToStep(3);
-    router.push("/register/payment-information");
+    goToStep(1); // İlk sayfa: Services
+    router.push("/register/services");
   };
 
   // Önceki sayfalardaki bilgilerin tamamlanıp tamamlanmadığını kontrol et
@@ -282,68 +298,77 @@ export default function RegistrationDocumentsPage() {
       const lead = data.lead;
       const missingFields: string[] = [];
 
-      // Step 1: Company Information kontrolü
-      if (!lead.company_name || lead.company_name.trim() === "") {
-        missingFields.push("Company Name (Company Information page)");
-      }
-      if (!lead.address_line1 && !lead.custom_address_line1) {
-        missingFields.push("Street Address (Company Information page)");
-      }
-      if (!lead.city || lead.city.trim() === "") {
-        missingFields.push("City (Company Information page)");
-      }
-      if (!lead.country || lead.country.trim() === "") {
-        missingFields.push("Country (Company Information page)");
-      }
-      if (!lead.pincode && !lead.custom_pincode) {
-        missingFields.push("Postal Code (Company Information page)");
-      }
-      const taxId = lead.custom_tax_id_number || lead.custom_custom_tax_id_number;
-      if (!taxId || taxId.trim() === "") {
-        missingFields.push("Tax ID Number (Company Information page)");
-      }
+      // Debug: Lead bilgilerini logla
+      console.log("Validation - Lead data:", {
+        company_name: lead.company_name,
+        address_line1: lead.address_line1,
+        city: lead.city,
+        country: lead.country,
+        pincode: lead.pincode,
+        custom_tax_id: lead.custom_tax_id,
+        custom_account_holder: lead.custom_account_holder,
+        custom_iban: lead.custom_iban,
+        custom_bic: lead.custom_bic,
+        custom_selected_services: lead.custom_selected_services,
+      });
 
-      // Step 2: Company Representative kontrolü (Business Address'ler)
-      // En az bir business address olmalı
-      let hasBusinessAddress = false;
-      if (lead.businesses && Array.isArray(lead.businesses) && lead.businesses.length > 0) {
-        // Business'lerin en az birinde temel bilgiler olmalı
-        hasBusinessAddress = lead.businesses.some((b: any) => 
-          (b.businessName && b.businessName.trim() !== "") ||
-          (b.street && b.street.trim() !== "") ||
-          (b.city && b.city.trim() !== "")
-        );
+      // NOT: Company Information ve Payment Information sayfaları henüz gelinmedi
+      // Bu sayfalar Registration Documents'tan SONRA geliyor (3. ve 4. sayfalar)
+      // Bu yüzden bu alanları kontrol etmiyoruz
+      // PDF'den okunan bilgiler Company Information sayfasına yüklenecek
+      
+      // Sadece önceki sayfalardaki (Services - 1. sayfa) alanları kontrol et
+
+      // Step 1: Services kontrolü (1. sayfa - Registration Documents'tan ÖNCE)
+      let hasServices = false;
+      
+      // Yöntem 1: Child table kontrolü
+      if (lead.services && Array.isArray(lead.services) && lead.services.length > 0) {
+        hasServices = true;
       }
-      // Business Address'leri kontrol et
-      if (!hasBusinessAddress) {
-        // Address DocType'ından kontrol et
-        if (lead.businesses && Array.isArray(lead.businesses) && lead.businesses.length > 0) {
-          // businesses array'inde bilgi varsa ama address yoksa, bu da geçerli
-          hasBusinessAddress = true;
+      
+      // Yöntem 2: custom_selected_services field'ı kontrolü (JSON array)
+      if (!hasServices && lead.custom_selected_services) {
+        try {
+          const services = typeof lead.custom_selected_services === 'string' 
+            ? JSON.parse(lead.custom_selected_services)
+            : lead.custom_selected_services;
+          
+          if (Array.isArray(services) && services.length > 0) {
+            hasServices = true;
+          }
+        } catch (e) {
+          // JSON parse hatası, virgülle ayrılmış string olabilir
+          const servicesStr = String(lead.custom_selected_services).trim();
+          if (servicesStr && servicesStr !== "[]" && servicesStr !== "") {
+            const servicesList = servicesStr.split(",").filter(s => s.trim());
+            if (servicesList.length > 0) {
+              hasServices = true;
+            }
+          }
         }
       }
-      // Not: Business address zorunlu değilse bu kontrolü atlayabiliriz
-      // Şimdilik business address'i opsiyonel bırakıyoruz
-
-      // Step 3: Payment Information kontrolü
-      if (!lead.custom_account_holder || lead.custom_account_holder.trim() === "") {
-        missingFields.push("Account Holder (Payment Information page)");
-      }
-      if (!lead.custom_iban || lead.custom_iban.trim() === "") {
-        missingFields.push("IBAN (Payment Information page)");
-      }
-      if (!lead.custom_bic || lead.custom_bic.trim() === "") {
-        missingFields.push("BIC (Payment Information page)");
-      }
-
-      // Step 4: Services kontrolü
-      const hasServices = lead.services && Array.isArray(lead.services) && lead.services.length > 0;
+      
+      // Eğer Lead'de yoksa, localStorage'dan kontrol et
       if (!hasServices) {
-        // Eski format kontrolü (backward compatibility)
-        const oldServices = lead.custom_selected_services;
-        if (!oldServices || oldServices === "[]" || oldServices === "") {
-          missingFields.push("At least one Service (Services page)");
+        try {
+          const storedServices = localStorage.getItem("selectedServices");
+          if (storedServices) {
+            const services = JSON.parse(storedServices);
+            if (Array.isArray(services) && services.length > 0) {
+              hasServices = true;
+              console.log("✅ Services found in localStorage:", services.length);
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing localStorage services:", e);
         }
+      }
+      
+      // Servis seçimi OPSIYONEL - zorunlu değil
+      if (!hasServices) {
+        console.warn("⚠️ No services selected - this is optional");
+        // missingFields.push("At least one Service (Services page)"); // KALDIRILDI - zorunlu değil
       }
 
       return {
@@ -356,10 +381,10 @@ export default function RegistrationDocumentsPage() {
     }
   };
 
-  const handleSubmit = async () => {
+  const handleNext = async () => {
     // Validation
     if (!selectedCompanyType) {
-      setError("Please select a company type before submitting documents.");
+      setError("Please select a company type before proceeding.");
       alert("Please select a company type");
       return;
     }
@@ -408,6 +433,10 @@ export default function RegistrationDocumentsPage() {
           }
         }
       }
+      if (!userEmail) {
+        const localEmail = localStorage.getItem("userEmail");
+        if (localEmail) userEmail = localEmail;
+      }
     }
 
     if (!userEmail) {
@@ -416,15 +445,60 @@ export default function RegistrationDocumentsPage() {
       return;
     }
 
-    // Önceki sayfalardaki bilgileri kontrol et
-    const validation = await validatePreviousSteps(userEmail);
-    if (!validation.isValid) {
-      setSubmitting(false);
-      const errorMessage = `Please complete all required fields from previous steps before submitting documents.\n\nMissing fields:\n${validation.missingFields.map((field, index) => `${index + 1}. ${field}`).join("\n")}\n\nPlease use the "Back" button to go back and complete these fields.`;
-      setError(errorMessage);
-      alert(errorMessage);
-      return;
+    // Business Registration belgesine yüklenen PDF'i ÖNCE oku (eğer varsa)
+    const businessRegistrationDoc = requiredDocuments.find(
+      (doc) => doc.documentName.toLowerCase().includes("business registration")
+    );
+    
+    if (businessRegistrationDoc && documentData[businessRegistrationDoc.id]?.files && documentData[businessRegistrationDoc.id].files!.length > 0) {
+      const pdfFile = documentData[businessRegistrationDoc.id].files![0];
+      
+      // PDF dosyası mı kontrol et
+      if (pdfFile.type === "application/pdf" || pdfFile.name.toLowerCase().endsWith(".pdf")) {
+        setParsingPdf(true);
+        try {
+          const pdfFormData = new FormData();
+          pdfFormData.append("file", pdfFile);
+          pdfFormData.append("companyTypeId", selectedCompanyType);
+
+          const parseRes = await fetch("/api/openai/parse-pdf", {
+            method: "POST",
+            body: pdfFormData,
+          });
+
+          const parseData = await parseRes.json();
+
+          if (parseData.success && parseData.companyInfo) {
+            // Okunan bilgileri localStorage'a kaydet
+            if (typeof window !== "undefined") {
+              localStorage.setItem("parsedCompanyInfo", JSON.stringify(parseData.companyInfo));
+            }
+            
+            // PDF'den okunan bilgileri direkt Lead'e de kaydet
+            try {
+              await fetch("/api/erp/update-lead", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: userEmail,
+                  companyInfo: parseData.companyInfo
+                }),
+              });
+            } catch (updateError) {
+              // Devam et, localStorage'da zaten var
+            }
+          }
+        } catch (parseError) {
+          // Hata olsa bile devam et, kullanıcı manuel doldurabilir
+        } finally {
+          setParsingPdf(false);
+        }
+      }
     }
+
+    // NOT: Validation'ı kaldırdık çünkü Company Information ve Payment Information sayfaları henüz gelinmedi
+    // Bu sayfalar Registration Documents'tan SONRA geliyor
+    // PDF'den okunan bilgiler Company Information sayfasına yüklenecek
 
     try {
       // File'ları FormData ile göndermek için hazırla
@@ -447,10 +521,12 @@ export default function RegistrationDocumentsPage() {
         }
       });
       
+      const selectedCompany = companyTypes.find(ct => ct.id === selectedCompanyType);
       formDataToSend.append("documents", JSON.stringify({
         typeOfCompany: selectedCompanyType,
+        typeOfCompanyName: selectedCompany?.name || "",
         documentData: serializableDocumentData,
-        isCompleted: true, // Tüm belgeler yüklendi
+        isCompleted: false, // Henüz tamamlanmadı, son sayfada tamamlanacak
       }));
 
       // Her belge için file'ları ekle
@@ -479,11 +555,10 @@ export default function RegistrationDocumentsPage() {
       const data = await res.json();
 
       if (data.success) {
-        // Registration tamamlandı, dashboard'a yönlendir
-        // custom_registration_status = "Completed" olarak güncellenmiş olmalı
+        // Belgeler kaydedildi, payment-information sayfasına git
         setError(""); // Clear any previous errors
-        alert("Registration completed successfully! Redirecting to dashboard...");
-        router.push("/dashboard");
+        goToStep(3); // Üçüncü sayfa: Payment Information
+        router.push("/register/payment-information");
       } else {
         console.error("Update lead error:", data);
         const errorMsg = data.error || "Failed to save documents";
@@ -491,11 +566,11 @@ export default function RegistrationDocumentsPage() {
         alert(errorMsg);
       }
     } catch (error: any) {
-      console.error("Error submitting documents:", error);
+      console.error("Error uploading documents:", error);
       console.error("Error details:", error.message, error.stack);
       const errorMessage = error.message || "Please try again.";
       setError(errorMessage);
-      alert(`Failed to submit documents: ${errorMessage}`);
+      alert(`Failed to upload documents: ${errorMessage}`);
     } finally {
       setSubmitting(false);
     }
@@ -517,10 +592,18 @@ export default function RegistrationDocumentsPage() {
               </p>
             </div>
 
-            {error && (
+            {errorText && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 <div className="font-semibold mb-2">⚠️ Please complete the following:</div>
-                <div className="whitespace-pre-line">{error}</div>
+                <div className="whitespace-pre-line">{errorText}</div>
+              </div>
+            )}
+
+            {/* PDF Parsing Loading */}
+            {parsingPdf && (
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700"></div>
+                <span>Business Registration Document okunuyor, lütfen bekleyin...</span>
               </div>
             )}
 
@@ -546,9 +629,9 @@ export default function RegistrationDocumentsPage() {
                     </option>
                   ))}
                 </select>
-                {selectedCompanyType && companyTypes.find((ct) => ct.name === selectedCompanyType)?.description && (
+                {selectedCompanyType && companyTypes.find((ct) => ct.id === selectedCompanyType)?.description && (
                   <p className="text-xs text-gray-500 mt-1">
-                    {companyTypes.find((ct) => ct.name === selectedCompanyType)?.description}
+                    {companyTypes.find((ct) => ct.id === selectedCompanyType)?.description}
                   </p>
                 )}
               </div>
@@ -687,8 +770,17 @@ export default function RegistrationDocumentsPage() {
                 >
                   Back
                 </Button>
-                <RegisterButton type="button" onClick={handleSubmit} disabled={!selectedCompanyType || requiredDocuments.length === 0 || submitting}>
-                  {submitting ? "Submitting..." : "Submit"}
+                <RegisterButton type="button" onClick={handleNext} disabled={!selectedCompanyType || requiredDocuments.length === 0 || submitting || parsingPdf}>
+                  {parsingPdf ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      PDF Okunuyor...
+                    </>
+                  ) : submitting ? (
+                    "Uploading..."
+                  ) : (
+                    "Next"
+                  )}
                 </RegisterButton>
               </div>
             </form>

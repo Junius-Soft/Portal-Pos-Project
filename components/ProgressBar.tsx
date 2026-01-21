@@ -5,10 +5,10 @@ import { useRegistration } from "@/contexts/RegistrationContext";
 import { Check } from "lucide-react";
 
 const steps = [
-  { number: 1, label: "COMPANY INFORMATION" },
-  { number: 2, label: "SERVICES" },
+  { number: 1, label: "SERVICES" },
+  { number: 2, label: "REGISTRATION DOCUMENTS" },
   { number: 3, label: "PAYMENT INFORMATION" },
-  { number: 4, label: "REGISTRATION DOCUMENTS" },
+  { number: 4, label: "COMPANY INFORMATION" },
 ];
 
 export default function ProgressBar() {

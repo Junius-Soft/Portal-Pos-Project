@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         "custom_registration_status",
         "custom_selected_services",
         "custom_account_holder",
-        "custom_type_of_company"
+        "custom_company_type"
       ]));
       
       const leadsResult = await erpGet(

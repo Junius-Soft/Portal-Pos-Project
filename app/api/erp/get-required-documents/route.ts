@@ -69,28 +69,7 @@ export async function GET(req: NextRequest) {
           // ID ile bulunamadı, devam et
         }
 
-        // Eğer name (ID) ile bulunamazsa, custom_company_type_name ile dene
-        if (companyTypes.length === 0) {
-          try {
-            const filtersByName = encodeURIComponent(JSON.stringify([
-              ["custom_company_type_name", "=", companyTypeName]
-            ]));
-            let url = `/api/resource/${encodeURIComponent(doctypeName)}?filters=${filtersByName}&fields=${fields}`;
-            let result = await erpGet(url, token);
-            
-            if (result?.data && Array.isArray(result.data)) {
-              companyTypes = result.data;
-            } else if (Array.isArray(result)) {
-              companyTypes = result;
-            } else if (result?.message && Array.isArray(result.message)) {
-              companyTypes = result.message;
-            }
-          } catch (nameError: any) {
-            // custom_company_type_name ile bulunamadı, devam et
-          }
-        }
-
-        // Eğer hala bulunamazsa, company_type_name ile dene
+        // Eğer name (ID) ile bulunamazsa, company_type_name ile dene
         if (companyTypes.length === 0) {
           try {
             const filtersByName2 = encodeURIComponent(JSON.stringify([
@@ -131,7 +110,7 @@ export async function GET(req: NextRequest) {
             // Case-insensitive ve trim ile eşleştir
             const searchName = companyTypeName.trim().toLowerCase();
             companyTypes = allCompanyTypes.filter((ct: any) => {
-              const ctName = (ct.custom_company_type_name || ct.company_type_name || ct.name || "").trim().toLowerCase();
+              const ctName = (ct.company_type_name || ct.name || "").trim().toLowerCase();
               const ctId = (ct.name || "").trim().toLowerCase();
               return ctName === searchName || ctId === searchName;
             });
@@ -231,8 +210,7 @@ export async function GET(req: NextRequest) {
 
 
     // Field isimleri custom_ prefix'li olabilir
-    const companyTypeDisplayName = companyTypeResult.custom_company_type_name || 
-                                   companyTypeResult.company_type_name || 
+    const companyTypeDisplayName = companyTypeResult.company_type_name ||
                                    companyTypeResult.name;
     const description = companyTypeResult.custom_description || 
                        companyTypeResult.description || "";

@@ -80,6 +80,10 @@ export default function PaymentInformationPage() {
           }
         }
       }
+      if (!userEmail) {
+        const localEmail = localStorage.getItem("userEmail");
+        if (localEmail) userEmail = localEmail;
+      }
     }
 
     if (!userEmail) {
@@ -158,8 +162,8 @@ export default function PaymentInformationPage() {
   };
 
   const handleBack = () => {
-    goToStep(2);
-    router.push("/register/services");
+    goToStep(2); // İkinci sayfa: Registration Documents
+    router.push("/register/registration-documents");
   };
 
   const handleNext = async () => {
@@ -192,6 +196,10 @@ export default function PaymentInformationPage() {
             console.error("Error parsing initial data:", error);
           }
         }
+      }
+      if (!userEmail) {
+        const localEmail = localStorage.getItem("userEmail");
+        if (localEmail) userEmail = localEmail;
       }
     }
 
@@ -234,9 +242,9 @@ export default function PaymentInformationPage() {
       return;
     }
 
-    // Navigate to next step
+    // Navigate to next step - Company Information (son sayfa)
     goToStep(4);
-    router.push("/register/registration-documents");
+    router.push("/register/company-information");
   };
 
   return (
